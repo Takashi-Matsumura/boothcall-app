@@ -1,36 +1,51 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# BoothCall
 
-## Getting Started
+展示会ブースでコーヒーを提供する際の「待ち時間」を管理するための呼出システムです。スタッフがチケット番号を発行・ステータス更新し、大型ディスプレイに呼び出し状況を表示します。
 
-First, run the development server:
+## 画面構成
+
+| 画面 | パス | 用途 |
+| --- | --- | --- |
+| サイネージ表示 | `/display`(`/` からリダイレクト) | ブースの大型モニターに常時表示。呼び出し中の番号を巨大表示し、準備中の番号一覧を表示する |
+| スタッフ操作 | `/admin` | 番号の発行・呼び出し・渡済み・スキップ・削除・全リセットを行う |
+
+## 主な機能
+
+- チケット発行 → 準備中 → 呼び出し中 → 完了(渡済み/スキップ) のステータス管理
+- Server-Sent Events (SSE) による `/admin` と `/display` 間のリアルタイム同期(切断時は自動でポーリングにフォールバック)
+- Web Audio API による呼び出しチャイム(ON/OFF切り替え可能)
+- 削除は楽観的UI更新 + Undoトースト、全リセットは誤操作防止の2段階確認
+
+## 技術スタック
+
+- [Next.js 16](https://nextjs.org/)(App Router)
+- React 19 / TypeScript
+- Tailwind CSS v4
+- [lucide-react](https://lucide.dev/)
+
+## セットアップ
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+[http://localhost:3000](http://localhost:3000) を開くと `/display` にリダイレクトされます。スタッフ操作は [http://localhost:3000/admin](http://localhost:3000/admin) から行います。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+その他のコマンド:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run typecheck  # 型チェック
+npm run lint       # ESLint
+npm run build      # 本番ビルド
+npm run start      # 本番サーバ起動
+```
 
-## Learn More
+## 運用上の注意
 
-To learn more about Next.js, take a look at the following resources:
+- チケットの状態は **サーバプロセスのメモリ上にのみ保持** されます。サーバを再起動すると発行済みチケットは全て消去されます(展示会1日単位の運用を想定した割り切りです)。
+- **認証機能はありません。** ブースのPC1台 + LAN上での運用を前提としており、同一ネットワーク上からは誰でも `/admin` の操作やAPIを呼び出せます。インターネット等の信頼できないネットワークに公開する構成では使用しないでください。
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## License
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT — see [LICENSE](./LICENSE).

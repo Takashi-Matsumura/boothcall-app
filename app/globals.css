@@ -1,26 +1,191 @@
+/* Hallmark · genre: editorial · theme: Garden (warm-craft) · macrostructure: display=Stat-Led, admin=kanban-dashboard (no catalog match) · nav: none · footer: none · design-system: design.md · designed-as-app */
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+:root,
+.theme-light {
+  --paper:      oklch(95.5% 0.022 92);
+  --paper-2:    oklch(92.5% 0.026 92);
+  --paper-3:    oklch(88.5% 0.030 90);
+  --rule:       oklch(83%   0.028 115);
+  --rule-2:     oklch(62%   0.045 132);
+  --muted:      oklch(48%   0.040 138);
+  --neutral:    oklch(40%   0.045 142);
+  --ink-2:      oklch(33%   0.050 150);
+  --ink:        oklch(24%   0.052 152);
+  --accent:     oklch(47%   0.13  140);
+  --accent-2:   oklch(54%   0.14  46);
+  --accent-ink: oklch(96%   0.02  92);
+  --focus:      oklch(47%   0.13  140);
+  --danger:     oklch(52%   0.18  25);
+  --danger-ink: oklch(97%   0.01  25);
+}
+
+.theme-dark {
+  --paper:      oklch(15%  0.020 92);
+  --paper-2:    oklch(19%  0.022 92);
+  --paper-3:    oklch(23%  0.024 92);
+  --rule:       oklch(32%  0.020 100);
+  --rule-2:     oklch(45%  0.030 110);
+  --muted:      oklch(68%  0.030 100);
+  --neutral:    oklch(78%  0.020 95);
+  --ink-2:      oklch(88%  0.018 92);
+  --ink:        oklch(94%  0.015 92);
+  --accent:     oklch(64%  0.14  140);
+  --accent-2:   oklch(66%  0.17  46);
+  --accent-ink: oklch(15%  0.020 92);
+  --focus:      oklch(72%  0.15  140);
+  --danger:     oklch(66%  0.19  25);
+  --danger-ink: oklch(15%  0.010 25);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-paper:      var(--paper);
+  --color-paper-2:    var(--paper-2);
+  --color-paper-3:    var(--paper-3);
+  --color-rule:       var(--rule);
+  --color-rule-2:     var(--rule-2);
+  --color-muted:      var(--muted);
+  --color-neutral:    var(--neutral);
+  --color-ink-2:      var(--ink-2);
+  --color-ink:        var(--ink);
+  --color-accent:     var(--accent);
+  --color-accent-2:   var(--accent-2);
+  --color-accent-ink: var(--accent-ink);
+  --color-focus:      var(--focus);
+  --color-danger:     var(--danger);
+  --color-danger-ink: var(--danger-ink);
+
+  --font-display: var(--font-young-serif), ui-serif, Georgia, serif;
+  --font-body:    var(--font-hanken-grotesk), ui-sans-serif, system-ui, sans-serif;
+  --font-outlier: var(--font-geist-mono), ui-monospace, monospace;
+
+  /* Override Tailwind's default ease-* utilities with Hallmark's canon curves. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  --radius-card:  10px;
+  --radius-pill:  8px;
+  --radius-input: 8px;
+
+  --shadow-card: 0 1px 2px oklch(20% 0.05 150 / 0.08);
+
+  --animate-call-pulse:  call-pulse 1.92s var(--ease-in-out, ease-in-out) infinite;
+  --animate-call-in:     call-in 0.6s var(--ease-out, ease-out);
+  --animate-blink:       blink 1.68s var(--ease-in-out, ease-in-out) infinite;
+  --animate-tick-reveal: tick-reveal 0.6s var(--ease-out, ease-out);
+  --animate-toast-in:    toast-in var(--dur-long, 504ms) var(--ease-out, ease-out);
+  --animate-toast-out:   toast-out calc(var(--dur-long, 504ms) * 0.6) var(--ease-in, ease-in);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+:root {
+  /* Garden runs a 1.2x duration multiplier vs. the base motion canon. */
+  --dur-micro: 144ms;
+  --dur-short: 264ms;
+  --dur-long: 504ms;
+
+  --space-3xs: 0.125rem;
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2.5rem;
+  --space-2xl: 4rem;
+  --space-3xl: 6rem;
+}
+
+html {
+  overflow-x: clip;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  overflow-x: clip;
+  font-family: var(--font-body);
+}
+
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+@keyframes call-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 0 oklch(54% 0.14 46 / 0));
+  }
+  50% {
+    transform: scale(1.035);
+    filter: drop-shadow(0 0 2.5rem oklch(54% 0.14 46 / 0.5));
+  }
+}
+
+@keyframes call-in {
+  0% {
+    opacity: 0;
+    transform: translateY(0.75rem) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@keyframes tick-reveal {
+  0% {
+    opacity: 0;
+    transform: translateY(0.4em);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes toast-in {
+  0% {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes toast-out {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 150ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 150ms !important;
+  }
 }

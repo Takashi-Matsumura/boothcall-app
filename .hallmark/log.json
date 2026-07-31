@@ -1,0 +1,11 @@
+[
+  {
+    "date": "2026-08-01",
+    "scope": "app",
+    "macrostructure": "display=Stat-Led, admin=kanban-dashboard (no catalog match)",
+    "theme": "Garden",
+    "theme_axes": "paper-band: display=dark / admin=light · display-style: roman-serif (Young Serif) · accent-hue: warm (leaf-green primary, terracotta-clay secondary)",
+    "enrichment": "none",
+    "brief": "BoothCall — booth-call queue display and staff control screen for a coffee booth at a trade show"
+  }
+]

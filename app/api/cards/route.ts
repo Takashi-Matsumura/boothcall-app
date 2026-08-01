@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { listRegisteredCards, registerCard } from "@/lib/card-registry";
+import { guardMutatingRequest } from "@/lib/request-guard";
 import { clearLastScan } from "@/lib/store";
 import { isValidCardId, normalizeCardId } from "@/lib/types";
 
@@ -14,6 +15,9 @@ export async function GET() {
 // カードへ恒久番号を割り当てる(映画館の半券方式)。冪等 — 登録済みカードを
 // 再度登録しようとした場合は既存の番号をそのまま返す。
 export async function POST(request: NextRequest) {
+  const rejected = guardMutatingRequest(request);
+  if (rejected) return rejected;
+
   const body = await request.json().catch(() => null);
   const raw = typeof body?.cardId === "string" ? body.cardId : "";
   const cardId = normalizeCardId(raw);

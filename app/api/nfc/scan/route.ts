@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { guardMutatingRequest } from "@/lib/request-guard";
 import { clearLastScan, getSnapshot, recordScan } from "@/lib/store";
 import { isValidCardId, normalizeCardId } from "@/lib/types";
 
@@ -13,6 +14,9 @@ export async function POST(request: NextRequest) {
   if (process.env.NODE_ENV === "production") {
     return new NextResponse(null, { status: 404 });
   }
+
+  const rejected = guardMutatingRequest(request);
+  if (rejected) return rejected;
 
   const body = await request.json().catch(() => null);
   const raw = typeof body?.cardId === "string" ? body.cardId : "";
@@ -29,7 +33,10 @@ export async function POST(request: NextRequest) {
 }
 
 // 本番でも使用: 未処理のスキャン候補を破棄する(発行キャンセル・自動失効用)。
-export async function DELETE() {
+export async function DELETE(request: NextRequest) {
+  const rejected = guardMutatingRequest(request);
+  if (rejected) return rejected;
+
   clearLastScan();
   return NextResponse.json({ snapshot: getSnapshot() });
 }

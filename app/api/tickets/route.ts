@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { guardMutatingRequest } from "@/lib/request-guard";
 import { getSnapshot, issueTicket } from "@/lib/store";
 import { isMenuItemId } from "@/lib/menu";
 import { isValidCardId, normalizeCardId } from "@/lib/types";
@@ -13,6 +14,9 @@ export async function GET() {
 // 新規チケット発行。カード無しのチケットは存在しないため cardId を必須とする。
 // 注文品(item)も必須 — チケットは必ず1種類のコーヒーを持つ。
 export async function POST(request: NextRequest) {
+  const rejected = guardMutatingRequest(request);
+  if (rejected) return rejected;
+
   const body = await request.json().catch(() => null);
   const raw = typeof body?.cardId === "string" ? body.cardId : "";
   const cardId = normalizeCardId(raw);

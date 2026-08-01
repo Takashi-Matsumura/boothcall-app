@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { guardMutatingRequest } from "@/lib/request-guard";
 import { applyAction, deleteTicket, getSnapshot } from "@/lib/store";
 import { isMenuItemId } from "@/lib/menu";
 import type { ActionFailureReason, TicketAction } from "@/lib/types";
@@ -32,6 +33,9 @@ const MESSAGE_BY_REASON: Record<ActionFailureReason, string> = {
 type RouteParams = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
+  const rejected = guardMutatingRequest(request);
+  if (rejected) return rejected;
+
   const { id } = await params;
   const body = await request.json().catch(() => null);
   const action = body?.action as TicketAction | undefined;
@@ -68,7 +72,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   return NextResponse.json({ ticket: result.ticket, snapshot: getSnapshot() });
 }
 
-export async function DELETE(_request: NextRequest, { params }: RouteParams) {
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
+  const rejected = guardMutatingRequest(request);
+  if (rejected) return rejected;
+
   const { id } = await params;
   const deleted = deleteTicket(id);
 

@@ -28,6 +28,26 @@ type ScanPanelProps = {
 // 共通ベース + 上書きの重ね書きは信頼できない)。
 const PANEL_BASE = "flex shrink-0 flex-col items-center gap-2 rounded-card px-6 text-center";
 
+/** unregistered/unbound で共通の「キャンセル」ボタン。 */
+function CancelButton({
+  onClick,
+  disabled,
+}: {
+  onClick: () => void;
+  disabled: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="min-h-11 whitespace-nowrap rounded-card border border-rule-2 bg-transparent px-4 py-2 text-sm font-semibold text-ink-2 transition-colors duration-[264ms] ease-out hover:bg-paper-2 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      キャンセル
+    </button>
+  );
+}
+
 export function ScanPanel({
   readerStatus,
   scan,
@@ -60,14 +80,7 @@ export function ScanPanel({
           >
             この番号で登録する
           </button>
-          <button
-            type="button"
-            onClick={onDismiss}
-            disabled={pending}
-            className="min-h-11 whitespace-nowrap rounded-card border border-rule-2 bg-transparent px-4 py-2 text-sm font-semibold text-ink-2 transition-colors duration-[264ms] ease-out hover:bg-paper-2 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            キャンセル
-          </button>
+          <CancelButton onClick={onDismiss} disabled={pending} />
         </div>
       </div>
     );
@@ -98,14 +111,7 @@ export function ScanPanel({
               {menuItem.label}
             </button>
           ))}
-          <button
-            type="button"
-            onClick={onDismiss}
-            disabled={pending}
-            className="min-h-11 whitespace-nowrap rounded-card border border-rule-2 bg-transparent px-4 py-2 text-sm font-semibold text-ink-2 transition-colors duration-[264ms] ease-out hover:bg-paper-2 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            キャンセル
-          </button>
+          <CancelButton onClick={onDismiss} disabled={pending} />
         </div>
       </div>
     );

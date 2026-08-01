@@ -132,6 +132,44 @@ async function postAction(
   return { ok: false, reason: (data?.reason as string) ?? "unknown" };
 }
 
+/** スキャンパネルからのPOST(発行・登録)共通処理。成功時は null、失敗時はエラー文言。 */
+async function postScanAction(
+  url: string,
+  body: unknown,
+  fallbackMessage: string,
+): Promise<string | null> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (res.ok) return null;
+  const data = await res.json().catch(() => null);
+  return data?.error ?? fallbackMessage;
+}
+
+/** トグル系ボタンの ON/OFF 配色(名刺トグル・注文品選択で共通)。 */
+function toggleToneClass(active: boolean): string {
+  return active
+    ? "border border-accent/40 bg-accent/12 text-accent"
+    : "border border-rule-2 bg-transparent text-ink-2 hover:bg-paper-2";
+}
+
+/** カードIDmの下4桁表示(TicketCard・登録済みカード一覧で共通)。 */
+function CardIdBadge({
+  cardId,
+  className = "text-xs",
+}: {
+  cardId: string;
+  className?: string;
+}) {
+  return (
+    <span className={`font-outlier text-muted ${className}`} title={cardId}>
+      {formatCardIdShort(cardId)}
+    </span>
+  );
+}
+
 function ActionButton({
   label,
   onClick,
@@ -218,12 +256,7 @@ function TicketCard({
             {menuItemLabel(ticket.item)}
           </span>
         )}
-        <span
-          className="font-outlier text-[11px] text-muted"
-          title={ticket.cardId}
-        >
-          {formatCardIdShort(ticket.cardId)}
-        </span>
+        <CardIdBadge cardId={ticket.cardId} className="text-[11px]" />
         <span className="text-xs text-muted">
           {elapsedLabel(
             ticket.status === "CALLING" && ticket.calledAt
@@ -248,11 +281,7 @@ function TicketCard({
                 onAction({ action: "set-item", item: menuItem.id });
                 setItemMenuOpen(false);
               }}
-              className={`min-h-11 whitespace-nowrap rounded-card px-3 py-1.5 text-xs font-semibold transition-colors duration-[264ms] ease-out active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 ${
-                ticket.item === menuItem.id
-                  ? "border border-accent/40 bg-accent/12 text-accent"
-                  : "border border-rule-2 bg-transparent text-ink-2 hover:bg-paper-2"
-              }`}
+              className={`min-h-11 whitespace-nowrap rounded-card px-3 py-1.5 text-xs font-semibold transition-colors duration-[264ms] ease-out active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 ${toggleToneClass(ticket.item === menuItem.id)}`}
             >
               {menuItem.label}
             </button>
@@ -271,11 +300,7 @@ function TicketCard({
                 action: ticket.meishiReceived ? "meishi-off" : "meishi-on",
               })
             }
-            className={`mr-auto inline-flex min-h-11 items-center gap-1.5 rounded-card px-3 py-2 text-sm font-semibold transition-colors duration-[264ms] ease-out active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 ${
-              ticket.meishiReceived
-                ? "border border-accent/40 bg-accent/12 text-accent"
-                : "border border-rule-2 bg-transparent text-ink-2 hover:bg-paper-2"
-            }`}
+            className={`mr-auto inline-flex min-h-11 items-center gap-1.5 rounded-card px-3 py-2 text-sm font-semibold transition-colors duration-[264ms] ease-out active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 ${toggleToneClass(ticket.meishiReceived)}`}
           >
             {ticket.meishiReceived ? (
               <CheckSquare size={16} />
@@ -586,15 +611,12 @@ export default function AdminPage() {
     if (!freshScan || freshScan.outcome !== "unbound") return;
     setScanError(null);
     startScanTransition(async () => {
-      const res = await fetch("/api/tickets", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cardId: freshScan.cardId, item }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        setScanError(data?.error ?? "発行に失敗しました");
-      }
+      const error = await postScanAction(
+        "/api/tickets",
+        { cardId: freshScan.cardId, item },
+        "発行に失敗しました",
+      );
+      if (error) setScanError(error);
       // 成功時はストアが lastScan を消費して null にするので、SSE 経由で
       // パネルは自動的に Idle に戻る。
     });
@@ -609,15 +631,12 @@ export default function AdminPage() {
     if (!freshScan || freshScan.outcome !== "unregistered") return;
     setScanError(null);
     startScanTransition(async () => {
-      const res = await fetch("/api/cards", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cardId: freshScan.cardId }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        setScanError(data?.error ?? "登録に失敗しました");
-      }
+      const error = await postScanAction(
+        "/api/cards",
+        { cardId: freshScan.cardId },
+        "登録に失敗しました",
+      );
+      if (error) setScanError(error);
       // 成功時はサーバ側で lastScan を消費するので、SSE 経由でパネルは
       // 自動的に Idle に戻る(handleIssueFromScan と同じ考え方)。
     });
@@ -741,12 +760,7 @@ export default function AdminPage() {
                 <span className="font-outlier tabular-nums text-ink">
                   {formatTicketNumber(card.number)}
                 </span>
-                <span
-                  className="font-outlier text-xs text-muted"
-                  title={card.cardId}
-                >
-                  {formatCardIdShort(card.cardId)}
-                </span>
+                <CardIdBadge cardId={card.cardId} />
                 <button
                   type="button"
                   onClick={() => handleRemoveCard(card.cardId)}

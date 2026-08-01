@@ -49,7 +49,11 @@ colour. Restraint still governs everywhere else: admin UI, connection badges,
 labels, secondary buttons. The 2026-08-01 `/admin` NFC additions (scan-panel
 active border, card-locate ring, reader-status badge) are accent-tinted but
 each occupies well under 1% of the viewport; they sit inside the ≤3–5% budget
-and are explicitly not a second exception.
+and are explicitly not a second exception. Same budget note for the
+2026-08-01 order-item feature: the scan panel's single filled-accent issue
+button became three (one per menu item) — each is the same small button
+size as before, so the aggregate accent-filled area barely moves and stays
+well inside the ≤3–5% ceiling.
 
 ## Macrostructure family
 - `/display`: **Stat-Led** (H4) — giant tabular-nums figure + worded state,
@@ -166,10 +170,12 @@ named tokens (`var(--space-md)`), never raw values.
 - Primary action (issue ticket, call, complete): filled, `--color-accent`
   fill + `--color-accent-ink` text, rectangular with `--radius-card` corners
   (Garden's soft-rounded register, not a pill — pill is reserved for status
-  badges only). Issuance is now two-step (tap → confirm); the filled-accent
-  treatment belongs to the 「この番号で発行」 confirm button only. The idle
-  scan panel is a passive drop target, not a button, and is deliberately not
-  accent-filled.
+  badges only). Issuance is two actions (tap card → tap drink), not
+  tap-then-confirm: once a card resolves to "unbound", the scan panel shows
+  one filled-accent button **per menu item** (2026-08-01, order-item
+  feature) — they are co-equal peers, not a single confirm gated behind a
+  prior choice. The idle scan panel is a passive drop target, not a button,
+  and is deliberately not accent-filled.
 - Secondary action (skip, revert): outline chip, 1px `--color-rule-2` border,
   transparent fill.
 - Destructive (delete): ghost/icon button, red on hover/focus only — never a
@@ -252,3 +258,14 @@ named tokens (`var(--space-md)`), never raw values.
   scan panel, and column headers stay on screen regardless of ticket count.
   No new colours, no new font roles, no change to the accent-exception or
   motion-primitive counts.
+- 2026-08-01 amendment (hand-edited, not a hallmark run): order-item
+  recording. Issuance now records which menu item (coffee) was ordered; the
+  scan panel's confirm button became one filled-accent button per menu item
+  (see CTA voice above). `/admin` ticket cards gained an editable item chip
+  (PREPARING/CALLING only — COMPLETED shows the item as static text, same
+  treatment as the existing 名刺 label) and a collapsible "注文集計" panel
+  next to the existing "登録済みカード" one. No new motion primitive (the
+  chip's expand/collapse is a plain conditional render, not an animated
+  reveal), no new Outlier role (item labels are Japanese menu names — body
+  font, not the numeral/hex-caption mono), no `/display` change, no
+  macrostructure change.

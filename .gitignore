@@ -36,6 +36,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# 実行時データ(カードの恒久番号registry等、展示会固有・環境固有のため)
+/data
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

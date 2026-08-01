@@ -10,7 +10,7 @@ export function ConnectionBadge({ connected }: { connected: boolean }) {
       }`}
     >
       {connected ? <Wifi size={16} /> : <WifiOff size={16} />}
-      {connected ? "接続中" : "切断"}
+      {connected ? "データ同期" : "同期停止"}
     </span>
   );
 }

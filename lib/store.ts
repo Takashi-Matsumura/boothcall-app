@@ -1,12 +1,14 @@
+import { getCardNumber, getRegistryStats } from "@/lib/card-registry";
+import { MENU_ITEMS, type MenuItemId } from "@/lib/menu";
 import {
   type ActionResult,
   type BoothSnapshot,
   type IssueResult,
   type LastScan,
+  type OrderTallyEntry,
   type ReaderStatus,
   type Ticket,
-  type TicketAction,
-  nextTicketNumber,
+  type TicketActionRequest,
 } from "@/lib/types";
 
 // COMPLETED はサイネージ/画面に表示する分だけ保持すればよいので、
@@ -17,7 +19,6 @@ type Listener = (snapshot: BoothSnapshot) => void;
 
 type BoothState = {
   tickets: Ticket[];
-  nextNumber: number;
   version: number;
   listeners: Set<Listener>;
   lastScan: LastScan | null;
@@ -35,7 +36,6 @@ const globalForStore = globalThis as unknown as {
 function createInitialState(): BoothState {
   return {
     tickets: [],
-    nextNumber: 1,
     version: 0,
     listeners: new Set(),
     lastScan: null,
@@ -46,20 +46,38 @@ function createInitialState(): BoothState {
 
 const state = (globalForStore.__boothState ??= createInitialState());
 
+/**
+ * メニュー項目ごとの注文・渡済み杯数。20件に切り詰められる COMPLETED 表示とは別に、
+ * 削除されていない全チケットを対象に毎回サーバ側で算出する(件数自体は少ないので
+ * 都度の集計コストは無視できる)。
+ */
+function computeOrderTally(): OrderTallyEntry[] {
+  return MENU_ITEMS.map(({ id }) => {
+    const ordered = state.tickets.filter((t) => t.item === id).length;
+    const served = state.tickets.filter(
+      (t) => t.item === id && t.status === "COMPLETED" && !t.skipped,
+    ).length;
+    return { item: id, ordered, served };
+  });
+}
+
 function snapshot(): BoothSnapshot {
   // COMPLETED を含む全件のうち、表示用に COMPLETED だけ直近件数に切り詰める。
   const active = state.tickets.filter((t) => t.status !== "COMPLETED");
   const completed = state.tickets
     .filter((t) => t.status === "COMPLETED")
     .slice(-MAX_COMPLETED_HISTORY);
+  const { registeredCardCount, nextRegistryNumber } = getRegistryStats();
 
   return {
     version: state.version,
     tickets: [...active, ...completed],
-    nextNumber: state.nextNumber,
     serverTime: Date.now(),
     lastScan: state.lastScan,
     readerStatus: state.readerStatus,
+    registeredCardCount,
+    nextRegistryNumber,
+    orderTally: computeOrderTally(),
   };
 }
 
@@ -82,15 +100,22 @@ export function findActiveTicketByCard(cardId: string): Ticket | null {
   );
 }
 
-export function issueTicket(cardId: string): IssueResult {
+export function issueTicket(cardId: string, item: MenuItemId): IssueResult {
   const conflict = findActiveTicketByCard(cardId);
   if (conflict) {
     return { ok: false, reason: "card_in_use", ticket: conflict };
   }
 
+  // 番号はカードに恒久的に割り当てられたもの(映画館の半券方式)。
+  // 未登録のカードでは発行できない — 先に登録が必要。
+  const number = getCardNumber(cardId);
+  if (number === null) {
+    return { ok: false, reason: "card_not_registered" };
+  }
+
   const ticket: Ticket = {
     id: crypto.randomUUID(),
-    number: state.nextNumber,
+    number,
     status: "PREPARING",
     createdAt: Date.now(),
     calledAt: null,
@@ -98,10 +123,10 @@ export function issueTicket(cardId: string): IssueResult {
     cardId,
     meishiReceived: false,
     meishiReceivedAt: null,
+    item,
   };
 
   state.tickets.push(ticket);
-  state.nextNumber = nextTicketNumber(state.nextNumber);
   // 発行に使ったタップは消費済みなので、リロードでプロンプトが復活しないよう消す。
   state.lastScan = null;
   state.version += 1;
@@ -109,17 +134,26 @@ export function issueTicket(cardId: string): IssueResult {
   return { ok: true, ticket };
 }
 
-/** カードタップを記録する。既存チケットへの紐付き有無に関わらず必ず記録する。 */
+/** カードタップを記録する。登録状態・既存チケットへの紐付き有無に関わらず必ず記録する。 */
 export function recordScan(cardId: string): LastScan {
-  const bound = findActiveTicketByCard(cardId);
+  const registeredNumber = getCardNumber(cardId);
+  const bound =
+    registeredNumber !== null ? findActiveTicketByCard(cardId) : null;
   state.scanCounter += 1;
+
   const scan: LastScan = {
     scanId: state.scanCounter,
     cardId,
     at: Date.now(),
-    outcome: bound ? "bound" : "unbound",
+    outcome:
+      registeredNumber === null ? "unregistered" : bound ? "bound" : "unbound",
     ticketId: bound?.id ?? null,
     ticketNumber: bound?.number ?? null,
+    previewNumber: bound
+      ? null
+      : registeredNumber === null
+        ? getRegistryStats().nextRegistryNumber
+        : registeredNumber,
   };
   state.lastScan = scan;
   state.version += 1;
@@ -142,14 +176,17 @@ export function setReaderStatus(next: ReaderStatus): void {
 }
 
 /**
- * ステータス遷移をサーバ側で検証して適用する。
+ * ステータス遷移・注文品の変更をサーバ側で検証して適用する。
  * 不正な遷移や名刺ゲート未達の場合は理由付きの失敗を返す。
  */
-export function applyAction(id: string, action: TicketAction): ActionResult {
+export function applyAction(
+  id: string,
+  request: TicketActionRequest,
+): ActionResult {
   const ticket = state.tickets.find((t) => t.id === id);
   if (!ticket) return { ok: false, reason: "not_found" };
 
-  switch (action) {
+  switch (request.action) {
     case "call": {
       if (ticket.status !== "PREPARING") {
         return { ok: false, reason: "invalid_transition", ticket };
@@ -205,7 +242,7 @@ export function applyAction(id: string, action: TicketAction): ActionResult {
       if (ticket.status === "COMPLETED") {
         return { ok: false, reason: "invalid_transition", ticket };
       }
-      const next = action === "meishi-on";
+      const next = request.action === "meishi-on";
       if (ticket.meishiReceived === next) {
         return { ok: true, ticket }; // 冪等。無駄な broadcast を出さない。
       }
@@ -213,8 +250,19 @@ export function applyAction(id: string, action: TicketAction): ActionResult {
       ticket.meishiReceivedAt = next ? Date.now() : null;
       break;
     }
+    case "set-item": {
+      // 渡し終えた注文の中身を後から書き換えると集計が実態とずれるため拒否する。
+      if (ticket.status === "COMPLETED") {
+        return { ok: false, reason: "invalid_transition", ticket };
+      }
+      if (ticket.item === request.item) {
+        return { ok: true, ticket }; // 冪等。無駄な broadcast を出さない。
+      }
+      ticket.item = request.item;
+      break;
+    }
     default: {
-      const exhaustiveCheck: never = action;
+      const exhaustiveCheck: never = request;
       return exhaustiveCheck;
     }
   }
@@ -236,11 +284,12 @@ export function deleteTicket(id: string): boolean {
 
 export function resetSession(): void {
   state.tickets = [];
-  state.nextNumber = 1;
   state.lastScan = null;
-  // scanCounter と readerStatus は保持する: scanCounter を巻き戻すと、
-  // 接続中クライアントがリセット後の新規スキャンを「既知」と誤判定して無視する。
-  // readerStatus はセッションの状態ではなくハードウェアの状態なので触らない。
+  // scanCounter と readerStatus、そしてカード登録レジストリ(lib/card-registry.ts)は
+  // 保持する: scanCounter を巻き戻すと、接続中クライアントがリセット後の新規スキャンを
+  // 「既知」と誤判定して無視する。readerStatus はハードウェアの状態なので触らない。
+  // カード登録は物理的にシールを貼った恒久的な対応表であり、セッション(その日の
+  // 待ち行列)のリセットとは無関係。
   state.version += 1;
   broadcast();
 }

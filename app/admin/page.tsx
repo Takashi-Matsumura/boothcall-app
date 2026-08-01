@@ -15,12 +15,15 @@ import { ReaderBadge } from "@/components/reader-badge";
 import { ScanPanel } from "@/components/scan-panel";
 import { TicketNumber } from "@/components/ticket-number";
 import { UndoToastStack, type PendingDeleteToast } from "@/components/undo-toast";
+import { MENU_ITEMS, menuItemLabel, type MenuItemId } from "@/lib/menu";
 import {
   formatCardIdShort,
+  formatTicketNumber,
   type BoothSnapshot,
+  type CardRegistration,
   type LastScan,
   type Ticket,
-  type TicketAction,
+  type TicketActionRequest,
 } from "@/lib/types";
 
 const UNDO_WINDOW_MS = 6000;
@@ -117,12 +120,12 @@ function useFreshScan(snapshot: BoothSnapshot | null): LastScan | null {
 
 async function postAction(
   id: string,
-  action: TicketAction,
+  request: TicketActionRequest,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
   const res = await fetch(`/api/tickets/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action }),
+    body: JSON.stringify(request),
   });
   if (res.ok) return { ok: true };
   const data = await res.json().catch(() => null);
@@ -172,11 +175,15 @@ function TicketCard({
   disabled: boolean;
   highlighted: boolean;
   errorMessage?: string;
-  onAction: (action: TicketAction) => void;
+  onAction: (request: TicketActionRequest) => void;
   onDelete?: () => void;
   ref?: React.Ref<HTMLDivElement>;
 }) {
   const meishiBlocked = ticket.status === "CALLING" && !ticket.meishiReceived;
+  // COMPLETED(渡し終えた注文)は中身を書き換えると集計が実態とずれるため訂正不可
+  // (サーバ側 applyAction の "set-item" ガードと対称)。
+  const itemEditable = ticket.status !== "COMPLETED";
+  const [itemMenuOpen, setItemMenuOpen] = useState(false);
 
   return (
     <div
@@ -194,8 +201,23 @@ function TicketCard({
         />
       )}
 
-      <div className="flex items-baseline gap-3">
+      <div className="flex flex-wrap items-baseline gap-3">
         <TicketNumber number={ticket.number} className="text-3xl text-ink" />
+        {itemEditable ? (
+          <button
+            type="button"
+            aria-expanded={itemMenuOpen}
+            disabled={disabled}
+            onClick={() => setItemMenuOpen((v) => !v)}
+            className="min-h-11 whitespace-nowrap rounded-card border border-rule-2 bg-transparent px-2.5 py-1 text-sm font-semibold text-ink-2 transition-colors duration-[264ms] ease-out hover:bg-paper-2 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {menuItemLabel(ticket.item)}
+          </button>
+        ) : (
+          <span className="text-sm font-semibold text-ink-2">
+            {menuItemLabel(ticket.item)}
+          </span>
+        )}
         <span
           className="font-outlier text-[11px] text-muted"
           title={ticket.cardId}
@@ -215,6 +237,29 @@ function TicketCard({
         )}
       </div>
 
+      {itemEditable && itemMenuOpen && (
+        <div className="flex flex-wrap gap-1.5">
+          {MENU_ITEMS.map((menuItem) => (
+            <button
+              key={menuItem.id}
+              type="button"
+              disabled={disabled}
+              onClick={() => {
+                onAction({ action: "set-item", item: menuItem.id });
+                setItemMenuOpen(false);
+              }}
+              className={`min-h-11 whitespace-nowrap rounded-card px-3 py-1.5 text-xs font-semibold transition-colors duration-[264ms] ease-out active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 ${
+                ticket.item === menuItem.id
+                  ? "border border-accent/40 bg-accent/12 text-accent"
+                  : "border border-rule-2 bg-transparent text-ink-2 hover:bg-paper-2"
+              }`}
+            >
+              {menuItem.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center justify-end gap-2">
         {ticket.status !== "COMPLETED" ? (
           <button
@@ -222,7 +267,9 @@ function TicketCard({
             aria-pressed={ticket.meishiReceived}
             disabled={disabled}
             onClick={() =>
-              onAction(ticket.meishiReceived ? "meishi-off" : "meishi-on")
+              onAction({
+                action: ticket.meishiReceived ? "meishi-off" : "meishi-on",
+              })
             }
             className={`mr-auto inline-flex min-h-11 items-center gap-1.5 rounded-card px-3 py-2 text-sm font-semibold transition-colors duration-[264ms] ease-out active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 ${
               ticket.meishiReceived
@@ -249,12 +296,12 @@ function TicketCard({
               label="呼び出す"
               tone="primary"
               disabled={disabled}
-              onClick={() => onAction("call")}
+              onClick={() => onAction({ action: "call" })}
             />
             <ActionButton
               label="スキップ"
               disabled={disabled}
-              onClick={() => onAction("skip")}
+              onClick={() => onAction({ action: "skip" })}
             />
           </>
         )}
@@ -264,17 +311,17 @@ function TicketCard({
               label="渡済み"
               tone="primary"
               disabled={disabled || meishiBlocked}
-              onClick={() => onAction("complete")}
+              onClick={() => onAction({ action: "complete" })}
             />
             <ActionButton
               label="スキップ"
               disabled={disabled}
-              onClick={() => onAction("skip")}
+              onClick={() => onAction({ action: "skip" })}
             />
             <ActionButton
               label="準備中に戻す"
               disabled={disabled}
-              onClick={() => onAction("revert")}
+              onClick={() => onAction({ action: "revert" })}
             />
           </>
         )}
@@ -282,7 +329,7 @@ function TicketCard({
           <ActionButton
             label="取り消し"
             disabled={disabled}
-            onClick={() => onAction("revert")}
+            onClick={() => onAction({ action: "revert" })}
           />
         )}
         {onDelete && (
@@ -348,6 +395,10 @@ export default function AdminPage() {
   const [scanError, setScanError] = useState<string | null>(null);
   const [scanPending, startScanTransition] = useTransition();
   const [handledScanId, setHandledScanId] = useState<number | null>(null);
+
+  const [registeredCards, setRegisteredCards] = useState<CardRegistration[]>(
+    [],
+  );
 
   const freshScan = useFreshScan(snapshot);
 
@@ -470,9 +521,9 @@ export default function AdminPage() {
     });
   };
 
-  const handleAction = (id: string, action: TicketAction) => {
+  const handleAction = (id: string, request: TicketActionRequest) => {
     withPending(id, async () => {
-      const result = await postAction(id, action);
+      const result = await postAction(id, request);
       if (!result.ok) showActionError(id, result.reason);
     });
   };
@@ -531,14 +582,14 @@ export default function AdminPage() {
     });
   };
 
-  const handleIssueFromScan = () => {
+  const handleIssueFromScan = (item: MenuItemId) => {
     if (!freshScan || freshScan.outcome !== "unbound") return;
     setScanError(null);
     startScanTransition(async () => {
       const res = await fetch("/api/tickets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cardId: freshScan.cardId }),
+        body: JSON.stringify({ cardId: freshScan.cardId, item }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
@@ -552,6 +603,41 @@ export default function AdminPage() {
   const handleDismissScan = () => {
     setScanError(null);
     void fetch("/api/nfc/scan", { method: "DELETE" });
+  };
+
+  const handleRegisterCard = () => {
+    if (!freshScan || freshScan.outcome !== "unregistered") return;
+    setScanError(null);
+    startScanTransition(async () => {
+      const res = await fetch("/api/cards", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cardId: freshScan.cardId }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setScanError(data?.error ?? "登録に失敗しました");
+      }
+      // 成功時はサーバ側で lastScan を消費するので、SSE 経由でパネルは
+      // 自動的に Idle に戻る(handleIssueFromScan と同じ考え方)。
+    });
+  };
+
+  const handleRegistryToggle = (
+    event: React.SyntheticEvent<HTMLDetailsElement>,
+  ) => {
+    if (!event.currentTarget.open) return;
+    void fetch("/api/cards")
+      .then((res) => res.json())
+      .then((data: { cards?: CardRegistration[] }) => {
+        setRegisteredCards(data.cards ?? []);
+      });
+  };
+
+  const handleRemoveCard = (cardId: string) => {
+    void fetch(`/api/cards/${cardId}`, { method: "DELETE" }).then(() => {
+      setRegisteredCards((prev) => prev.filter((c) => c.cardId !== cardId));
+    });
   };
 
   const visiblePreparing = useMemo(
@@ -586,10 +672,13 @@ export default function AdminPage() {
       disabled={pendingIds.has(ticket.id)}
       highlighted={highlightedId === ticket.id}
       errorMessage={actionErrors.get(ticket.id)}
-      onAction={(action) => handleAction(ticket.id, action)}
+      onAction={(request) => handleAction(ticket.id, request)}
       onDelete={withDelete ? () => handleDelete(ticket) : undefined}
     />
   );
+
+  const orderTally = snapshot?.orderTally ?? [];
+  const totalOrdered = orderTally.reduce((sum, entry) => sum + entry.ordered, 0);
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 md:h-dvh md:overflow-hidden">
@@ -623,12 +712,72 @@ export default function AdminPage() {
         <ScanPanel
           readerStatus={readerStatus}
           scan={scanVisible ? freshScan : null}
-          nextNumber={snapshot?.nextNumber ?? 1}
+          registeredCardCount={snapshot?.registeredCardCount ?? 0}
           pending={scanPending}
           error={scanError}
           onIssue={handleIssueFromScan}
+          onRegister={handleRegisterCard}
           onDismiss={handleDismissScan}
         />
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <details
+          className="w-full shrink-0 rounded-card border border-rule bg-paper-2 open:pb-2 sm:w-auto sm:flex-1 sm:basis-64"
+          onToggle={handleRegistryToggle}
+        >
+          <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium text-ink-2">
+            登録済みカード ({snapshot?.registeredCardCount ?? 0} 枚)
+          </summary>
+          <div className="flex max-h-48 flex-col gap-1 overflow-y-auto px-3 scrollbar-thin scrollbar-thumb-rule-2">
+            {registeredCards.length === 0 && (
+              <p className="text-sm text-muted">登録済みのカードはありません</p>
+            )}
+            {registeredCards.map((card) => (
+              <div
+                key={card.cardId}
+                className="flex items-center justify-between gap-3 text-sm"
+              >
+                <span className="font-outlier tabular-nums text-ink">
+                  {formatTicketNumber(card.number)}
+                </span>
+                <span
+                  className="font-outlier text-xs text-muted"
+                  title={card.cardId}
+                >
+                  {formatCardIdShort(card.cardId)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveCard(card.cardId)}
+                  aria-label={`${formatTicketNumber(card.number)} の登録を取り消す`}
+                  className="grid min-h-11 min-w-11 place-items-center rounded-card text-muted transition-colors duration-[264ms] ease-out hover:bg-danger/15 hover:text-danger active:translate-y-px"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </details>
+
+        <details className="w-full shrink-0 rounded-card border border-rule bg-paper-2 open:pb-2 sm:w-auto sm:flex-1 sm:basis-64">
+          <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium text-ink-2">
+            注文集計 (合計 {totalOrdered} 杯)
+          </summary>
+          <div className="flex flex-col gap-1 px-3 text-sm">
+            {orderTally.map((entry) => (
+              <div
+                key={entry.item}
+                className="flex items-center justify-between gap-3"
+              >
+                <span className="text-ink-2">{menuItemLabel(entry.item)}</span>
+                <span className="font-outlier tabular-nums text-muted">
+                  注文 {entry.ordered} 杯 / 渡済み {entry.served} 杯
+                </span>
+              </div>
+            ))}
+          </div>
+        </details>
       </div>
 
       <div className="grid min-h-0 grid-cols-1 gap-4 md:flex-1 md:grid-cols-3 md:grid-rows-1">

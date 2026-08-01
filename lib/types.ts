@@ -1,8 +1,10 @@
+import type { MenuItemId } from "@/lib/menu";
+
 export type TicketStatus = "PREPARING" | "CALLING" | "COMPLETED";
 
 export type Ticket = {
   id: string;
-  /** 1..999 の連番。999 の次は 1 に巻き戻る。 */
+  /** カードに恒久的に割り当てられた番号(lib/card-registry.ts 参照)。 */
   number: number;
   status: TicketStatus;
   createdAt: number;
@@ -15,9 +17,11 @@ export type Ticket = {
   meishiReceived: boolean;
   /** 名刺受領フラグを ON にした時刻。運用ログ用途、UI 表示では未使用。 */
   meishiReceivedAt: number | null;
+  /** 注文されたコーヒーの種類(lib/menu.ts)。チケットは必ず1種類を持つ。 */
+  item: MenuItemId;
 };
 
-export type ScanOutcome = "unbound" | "bound";
+export type ScanOutcome = "unregistered" | "unbound" | "bound";
 
 export type LastScan = {
   /** 単調増加の採番。同じカードの連続タップでも必ず変わる。クライアントの新旧判定用。 */
@@ -28,6 +32,13 @@ export type LastScan = {
   /** outcome === "bound" のときのみ非 null。 */
   ticketId: string | null;
   ticketNumber: number | null;
+  /**
+   * outcome === "unregistered" のときは登録した場合に割り当てられる予定の番号、
+   * outcome === "unbound" のときはそのカードに既に恒久登録されている番号
+   * (= 発行時にそのまま使われる番号)。outcome === "bound" のときは null
+   * (既存チケットの番号は ticketNumber が持つ)。
+   */
+  previewNumber: number | null;
 };
 
 /**
@@ -42,21 +53,34 @@ export type BoothSnapshot = {
   version: number;
   /** COMPLETED は直近 20 件のみ含む。 */
   tickets: Ticket[];
-  /** 次に発行される番号。 */
-  nextNumber: number;
   serverTime: number;
   /** 直近のカードタップ。未タップ・破棄済みは null。 */
   lastScan: LastScan | null;
   readerStatus: ReaderStatus;
+  /** カード登録の進捗表示用。 */
+  registeredCardCount: number;
+  /** 次に新規登録されるカードに割り当てられる番号のプレビュー。 */
+  nextRegistryNumber: number;
+  /** メニュー項目ごとの注文・渡済み杯数集計(削除済みチケットは含まない)。 */
+  orderTally: OrderTallyEntry[];
 };
 
-export type TicketAction =
-  | "call"
-  | "complete"
-  | "skip"
-  | "revert"
-  | "meishi-on"
-  | "meishi-off";
+/** メニュー項目ごとの集計(lib/store.ts の snapshot() が算出)。 */
+export type OrderTallyEntry = {
+  item: MenuItemId;
+  /** 削除されていない全チケット数(発行ベース)。 */
+  ordered: number;
+  /** COMPLETED かつスキップされていない(実際に渡した)数。 */
+  served: number;
+};
+
+export type TicketActionRequest =
+  | {
+      action: "call" | "complete" | "skip" | "revert" | "meishi-on" | "meishi-off";
+    }
+  | { action: "set-item"; item: MenuItemId };
+
+export type TicketAction = TicketActionRequest["action"];
 
 export type ActionFailureReason =
   | "not_found"
@@ -70,16 +94,25 @@ export type ActionResult =
 
 export type IssueResult =
   | { ok: true; ticket: Ticket }
-  | { ok: false; reason: "card_in_use"; ticket: Ticket };
+  | { ok: false; reason: "card_in_use"; ticket: Ticket }
+  | { ok: false; reason: "card_not_registered" };
 
-const MAX_TICKET_NUMBER = 999;
+/** カードごとの恒久番号登録(lib/card-registry.ts)。 */
+export type CardRegistration = {
+  cardId: string;
+  number: number;
+  registeredAt: number;
+};
+
+export type RegisterCardResult = {
+  cardId: string;
+  number: number;
+  /** 既に登録済みだった(冪等に既存の番号を返した)場合 true。 */
+  alreadyRegistered: boolean;
+};
 
 export function formatTicketNumber(n: number): string {
   return String(n).padStart(3, "0");
-}
-
-export function nextTicketNumber(current: number): number {
-  return current >= MAX_TICKET_NUMBER ? 1 : current + 1;
 }
 
 // FeliCa の IDm は 16 桁の16進文字列だが、実機到着前の検証で 8 桁(MIFARE 等)の

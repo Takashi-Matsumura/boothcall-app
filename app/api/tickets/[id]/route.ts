@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { applyAction, deleteTicket, getSnapshot } from "@/lib/store";
+import { isMenuItemId } from "@/lib/menu";
 import type { ActionFailureReason, TicketAction } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +12,7 @@ const VALID_ACTIONS: readonly TicketAction[] = [
   "revert",
   "meishi-on",
   "meishi-off",
+  "set-item",
 ];
 
 const STATUS_BY_REASON: Record<ActionFailureReason, number> = {
@@ -41,7 +43,17 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     );
   }
 
-  const result = applyAction(id, action);
+  if (action === "set-item" && !isMenuItemId(body?.item)) {
+    return NextResponse.json(
+      { error: "item must be a valid menu item id", reason: "invalid_item" },
+      { status: 400 },
+    );
+  }
+
+  const result = applyAction(
+    id,
+    action === "set-item" ? { action, item: body.item } : { action },
+  );
   if (!result.ok) {
     return NextResponse.json(
       {

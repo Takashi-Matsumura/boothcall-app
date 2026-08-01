@@ -2,6 +2,7 @@
 
 import { Nfc } from "lucide-react";
 import { TicketNumber } from "@/components/ticket-number";
+import { MENU_ITEMS, type MenuItemId } from "@/lib/menu";
 import {
   formatCardIdShort,
   formatTicketNumber,
@@ -13,10 +14,12 @@ type ScanPanelProps = {
   readerStatus: ReaderStatus;
   /** 「新規」判定済みのスキャンのみを渡す(古いスキャンは呼び出し側でフィルタ済み)。 */
   scan: LastScan | null;
-  nextNumber: number;
+  /** 登録済みカード枚数(アイドル時の進捗表示用)。 */
+  registeredCardCount: number;
   pending: boolean;
   error: string | null;
-  onIssue: () => void;
+  onIssue: (item: MenuItemId) => void;
+  onRegister: () => void;
   onDismiss: () => void;
 };
 
@@ -28,18 +31,21 @@ const PANEL_BASE = "flex shrink-0 flex-col items-center gap-2 rounded-card px-6 
 export function ScanPanel({
   readerStatus,
   scan,
-  nextNumber,
+  registeredCardCount,
   pending,
   error,
   onIssue,
+  onRegister,
   onDismiss,
 }: ScanPanelProps) {
-  // 未紐付けカードの検出: 発行の確定待ち(タップは識別のみ、確定はボタンで行う)。
-  if (scan?.outcome === "unbound") {
+  // 未登録カードの検出: 恒久番号の登録確定待ち(発行とは別の操作)。
+  // 「登録する」と「発行する」を混同しないよう、動詞・見た目を明確に分ける。
+  if (scan?.outcome === "unregistered") {
     return (
-      <div className={`${PANEL_BASE} border border-accent bg-paper-3 py-5`}>
-        <span className="font-outlier text-5xl tabular-nums text-ink">
-          {formatTicketNumber(nextNumber)}
+      <div className={`${PANEL_BASE} border border-accent-2 bg-paper-3 py-5`}>
+        <p className="text-sm text-muted">未登録のカードです</p>
+        <span className="font-outlier text-4xl tabular-nums text-ink">
+          {formatTicketNumber(scan.previewNumber ?? 0)}
         </span>
         <span className="font-outlier text-xs text-muted">
           カード {formatCardIdShort(scan.cardId)}
@@ -48,12 +54,50 @@ export function ScanPanel({
         <div className="flex gap-2">
           <button
             type="button"
-            onClick={onIssue}
+            onClick={onRegister}
             disabled={pending}
-            className="min-h-11 whitespace-nowrap rounded-card bg-accent px-4 py-2 text-sm font-semibold text-accent-ink transition-colors duration-[264ms] ease-out active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
+            className="min-h-11 whitespace-nowrap rounded-card bg-accent-2 px-4 py-2 text-sm font-semibold text-accent-ink transition-colors duration-[264ms] ease-out active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
           >
-            この番号で発行
+            この番号で登録する
           </button>
+          <button
+            type="button"
+            onClick={onDismiss}
+            disabled={pending}
+            className="min-h-11 whitespace-nowrap rounded-card border border-rule-2 bg-transparent px-4 py-2 text-sm font-semibold text-ink-2 transition-colors duration-[264ms] ease-out hover:bg-paper-2 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            キャンセル
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 登録済み・未紐付けカードの検出: 「カードのタップ」に続く「注文品のタップ」の
+  // 2アクション目。ここでボタンを押すと即座に発行される(選択→確定の別段階にはしない)。
+  if (scan?.outcome === "unbound") {
+    return (
+      <div className={`${PANEL_BASE} border border-accent bg-paper-3 py-5`}>
+        <span className="font-outlier text-5xl tabular-nums text-ink">
+          {formatTicketNumber(scan.previewNumber ?? 0)}
+        </span>
+        <span className="font-outlier text-xs text-muted">
+          カード {formatCardIdShort(scan.cardId)}
+        </span>
+        <p className="text-sm text-muted">注文の品を選ぶと発行されます</p>
+        {error && <p className="text-xs text-danger">{error}</p>}
+        <div className="flex flex-wrap justify-center gap-2">
+          {MENU_ITEMS.map((menuItem) => (
+            <button
+              key={menuItem.id}
+              type="button"
+              onClick={() => onIssue(menuItem.id)}
+              disabled={pending}
+              className="min-h-11 whitespace-nowrap rounded-card bg-accent px-4 py-2 text-sm font-semibold text-accent-ink transition-colors duration-[264ms] ease-out active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {menuItem.label}
+            </button>
+          ))}
           <button
             type="button"
             onClick={onDismiss}
@@ -105,10 +149,8 @@ export function ScanPanel({
       <Nfc size={28} className="text-ink-2" />
       <p className="text-sm font-medium text-ink-2">カードをタッチして発行</p>
       <p className="text-xs text-muted">
-        次の番号{" "}
-        <span className="font-outlier tabular-nums">
-          {formatTicketNumber(nextNumber)}
-        </span>
+        登録済み{" "}
+        <span className="font-outlier tabular-nums">{registeredCardCount}</span> 枚
       </p>
     </div>
   );

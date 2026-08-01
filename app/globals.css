@@ -76,6 +76,33 @@
   --animate-tick-reveal: tick-reveal 0.6s var(--ease-out, ease-out);
   --animate-toast-in:    toast-in var(--dur-long, 504ms) var(--ease-out, ease-out);
   --animate-toast-out:   toast-out calc(var(--dur-long, 504ms) * 0.6) var(--ease-in, ease-in);
+  --animate-card-locate: card-locate var(--dur-long, 504ms) var(--ease-out, ease-out) 1;
+}
+
+/* /display の縦バジェット(h-dvh 内で絶対にクリップさせないための実測値)。
+   header = h-14 = 56px 固定 → 残り (100dvh - 56px) を hero:準備中 = 2:1 で配分。
+     hero セクション  A = 66.67dvh - 37.3px
+     準備中セクション B = 33.33dvh - 18.7px
+   hero の内訳(最悪ケース = rest 行あり):
+     py-3 相当 24px + gap×2(clamp gap) + ラベル(line-height込み) + rest 行 + 数字本体
+     → 本体は概ね A の 70-75% を安全マージンとして確保できるよう 38dvh を採用
+       (viewport 高 758px 以上では 18rem 上限に張り付き、現状と全く同じ見た目になる)。
+   準備中の内訳: py-3 24 + ラベル 28 + gap-3 12 + 数字2行 + 行間 12
+     → 数字は 16dvh - 3.25rem を採用(700px 以上の高さでは現状の sm:text-6xl 相当で頭打ち)。
+   vw 項は縦長(ポートレート)画面での横あふれ防止のみが目的
+   (数字は常に3桁 = 約1.8em 幅、Geist Mono の advance 0.6em から算出)。 */
+@theme {
+  --text-hero-figure: clamp(6rem, min(42vw, 38dvh), 18rem);
+  --text-hero-figure--line-height: 1;
+
+  --text-hero-label: clamp(1.25rem, 3dvh, 1.875rem);
+  --text-hero-label--line-height: 1.2;
+
+  --text-call-rest: clamp(2rem, min(8dvh, 9vw), 6rem);
+  --text-call-rest--line-height: 1;
+
+  --text-queue-num: clamp(1.5rem, min(calc(16dvh - 3.25rem), 6vw), 3.75rem);
+  --text-queue-num--line-height: 1;
 }
 
 :root {
@@ -177,6 +204,20 @@ body {
   100% {
     opacity: 0;
     transform: translateY(0.5rem);
+  }
+}
+
+@keyframes card-locate {
+  /* NFC タップで識別されたチケットカードへ注目を誘導する一回限りのウォッシュ。
+     opacity のみをアニメーションする(色そのものは静的な bg-accent/12)。 */
+  0% {
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
   }
 }
 

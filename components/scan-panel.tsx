@@ -1,0 +1,115 @@
+"use client";
+
+import { Nfc } from "lucide-react";
+import { TicketNumber } from "@/components/ticket-number";
+import {
+  formatCardIdShort,
+  formatTicketNumber,
+  type LastScan,
+  type ReaderStatus,
+} from "@/lib/types";
+
+type ScanPanelProps = {
+  readerStatus: ReaderStatus;
+  /** 「新規」判定済みのスキャンのみを渡す(古いスキャンは呼び出し側でフィルタ済み)。 */
+  scan: LastScan | null;
+  nextNumber: number;
+  pending: boolean;
+  error: string | null;
+  onIssue: () => void;
+  onDismiss: () => void;
+};
+
+// py-* は状態ごとに個別指定する(同一詳細度の Tailwind ユーティリティは
+// クラス文字列中の記述順ではなくスタイルシート内の定義順で解決されるため、
+// 共通ベース + 上書きの重ね書きは信頼できない)。
+const PANEL_BASE = "flex shrink-0 flex-col items-center gap-2 rounded-card px-6 text-center";
+
+export function ScanPanel({
+  readerStatus,
+  scan,
+  nextNumber,
+  pending,
+  error,
+  onIssue,
+  onDismiss,
+}: ScanPanelProps) {
+  // 未紐付けカードの検出: 発行の確定待ち(タップは識別のみ、確定はボタンで行う)。
+  if (scan?.outcome === "unbound") {
+    return (
+      <div className={`${PANEL_BASE} border border-accent bg-paper-3 py-5`}>
+        <span className="font-outlier text-5xl tabular-nums text-ink">
+          {formatTicketNumber(nextNumber)}
+        </span>
+        <span className="font-outlier text-xs text-muted">
+          カード {formatCardIdShort(scan.cardId)}
+        </span>
+        {error && <p className="text-xs text-danger">{error}</p>}
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onIssue}
+            disabled={pending}
+            className="min-h-11 whitespace-nowrap rounded-card bg-accent px-4 py-2 text-sm font-semibold text-accent-ink transition-colors duration-[264ms] ease-out active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            この番号で発行
+          </button>
+          <button
+            type="button"
+            onClick={onDismiss}
+            disabled={pending}
+            className="min-h-11 whitespace-nowrap rounded-card border border-rule-2 bg-transparent px-4 py-2 text-sm font-semibold text-ink-2 transition-colors duration-[264ms] ease-out hover:bg-paper-2 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            キャンセル
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 既存チケットに紐づいたカードの検出: 対応するカードは下のカンバンでハイライトされる。
+  // ここでは「想定内の動作」であることだけを穏やかに伝え、danger扱いにはしない。
+  if (scan?.outcome === "bound") {
+    return (
+      <div className={`${PANEL_BASE} border border-rule bg-paper-2 py-3`}>
+        <p className="text-sm text-muted">
+          このカードは{" "}
+          <TicketNumber
+            number={scan.ticketNumber ?? 0}
+            className="text-ink-2"
+          />{" "}
+          に割り当て済みです
+        </p>
+      </div>
+    );
+  }
+
+  if (readerStatus !== "connected") {
+    const message =
+      readerStatus === "disconnected"
+        ? "リーダーが接続されていません"
+        : "NFCリーダーは無効です";
+    const tone = readerStatus === "disconnected" ? "text-danger" : "text-muted";
+    return (
+      <div
+        className={`${PANEL_BASE} border border-dashed border-rule-2 bg-paper-2 py-4`}
+      >
+        <p className={`text-sm font-medium ${tone}`}>{message}</p>
+      </div>
+    );
+  }
+
+  // Idle: リーダー接続済み・タップ待ち。プライマリボタンではないので accent 塗りにしない。
+  return (
+    <div className={`${PANEL_BASE} border border-dashed border-rule-2 bg-paper-2 py-4`}>
+      <Nfc size={28} className="text-ink-2" />
+      <p className="text-sm font-medium text-ink-2">カードをタッチして発行</p>
+      <p className="text-xs text-muted">
+        次の番号{" "}
+        <span className="font-outlier tabular-nums">
+          {formatTicketNumber(nextNumber)}
+        </span>
+      </p>
+    </div>
+  );
+}

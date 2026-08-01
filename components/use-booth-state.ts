@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { BoothSnapshot, Ticket } from "@/lib/types";
+import type { BoothSnapshot, LastScan, ReaderStatus, Ticket } from "@/lib/types";
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -11,6 +11,8 @@ type BoothStateResult = {
   preparing: Ticket[];
   calling: Ticket[];
   completed: Ticket[];
+  lastScan: LastScan | null;
+  readerStatus: ReaderStatus;
 };
 
 export function useBoothState(): BoothStateResult {
@@ -108,5 +110,13 @@ export function useBoothState(): BoothStateResult {
     [snapshot],
   );
 
-  return { snapshot, connected, preparing, calling, completed };
+  return {
+    snapshot,
+    connected,
+    preparing,
+    calling,
+    completed,
+    lastScan: snapshot?.lastScan ?? null,
+    readerStatus: snapshot?.readerStatus ?? "unavailable",
+  };
 }

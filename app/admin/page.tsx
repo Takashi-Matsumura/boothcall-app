@@ -1,15 +1,48 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { RotateCcw, Trash2 } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
+import { CheckSquare, RotateCcw, Square, Trash2 } from "lucide-react";
 import { useBoothState } from "@/components/use-booth-state";
 import { ConnectionBadge } from "@/components/connection-badge";
+import { ReaderBadge } from "@/components/reader-badge";
+import { ScanPanel } from "@/components/scan-panel";
 import { TicketNumber } from "@/components/ticket-number";
 import { UndoToastStack, type PendingDeleteToast } from "@/components/undo-toast";
-import { formatTicketNumber, type Ticket, type TicketAction } from "@/lib/types";
+import {
+  formatCardIdShort,
+  type BoothSnapshot,
+  type LastScan,
+  type Ticket,
+  type TicketAction,
+} from "@/lib/types";
 
 const UNDO_WINDOW_MS = 6000;
 const TOAST_EXIT_MS = 300;
+const SCAN_AUTO_DISMISS_MS = 30_000;
+const BOUND_MESSAGE_VISIBLE_MS = 4000;
+const HIGHLIGHT_DURATION_MS = 2400;
+const ACTION_ERROR_VISIBLE_MS = 5000;
+
+// md 以上ではページ全体ではなく各カラム(レーン)の内部だけをスクロールさせる。
+// -mx-1.5/px-1.5 は overflow-y-auto が誘発する意図しない水平スクロールバーを、
+// カードロケートハイライトの ring-offset のためのゆとりで吸収するための余白。
+const COLUMN_LANE =
+  "-mx-1.5 flex min-h-0 flex-1 flex-col gap-2 px-1.5 scrollbar-thin " +
+  "scrollbar-thumb-rule-2 scrollbar-gutter-stable md:overflow-x-clip md:overflow-y-auto md:overscroll-contain";
+
+const ERROR_MESSAGE: Record<string, string> = {
+  meishi_required: "名刺を受け取ってから渡済みにできます",
+  card_reissued: "このカードは別の注文に再発行済みのため取り消せません",
+  invalid_transition: "状態が変わりました。画面を確認してください",
+  not_found: "このチケットは既に削除されています",
+};
 
 function useNow() {
   const [now, setNow] = useState(() => Date.now());
@@ -29,12 +62,71 @@ function elapsedLabel(fromMs: number, now: number): string {
   return `${hours}時間前`;
 }
 
-async function postAction(id: string, action: TicketAction) {
-  await fetch(`/api/tickets/${id}`, {
+type FreshScanTracking = {
+  lastSnapshot: BoothSnapshot | null;
+  hasBaseline: boolean;
+  seenScanId: number;
+  fresh: LastScan | null;
+};
+
+const INITIAL_SCAN_TRACKING: FreshScanTracking = {
+  lastSnapshot: null,
+  hasBaseline: false,
+  seenScanId: 0,
+  fresh: null,
+};
+
+/**
+ * スナップショットの lastScan から「新規タップ」だけを取り出す。
+ * 初回受信したスナップショットを基準点とし、それ以前に乗っていた lastScan は
+ * 「今タップされたもの」として扱わない(/display のチャイム判定と同じ考え方)。
+ *
+ * effect ではなく「レンダー中に state を調整する」React 公式パターンで実装する
+ * (snapshot は props 相当であり、その変化に応じて state を同期する処理は
+ * `useEffect` 内で直接 setState するより、レンダー中の比較・更新の方が適切)。
+ */
+function useFreshScan(snapshot: BoothSnapshot | null): LastScan | null {
+  const [tracking, setTracking] = useState(INITIAL_SCAN_TRACKING);
+
+  if (snapshot && snapshot !== tracking.lastSnapshot) {
+    const scan = snapshot.lastScan;
+
+    if (!tracking.hasBaseline) {
+      setTracking({
+        lastSnapshot: snapshot,
+        hasBaseline: true,
+        seenScanId: scan?.scanId ?? 0,
+        fresh: null,
+      });
+    } else if (!scan) {
+      setTracking({ ...tracking, lastSnapshot: snapshot, fresh: null });
+    } else if (scan.scanId > tracking.seenScanId) {
+      setTracking({
+        lastSnapshot: snapshot,
+        hasBaseline: true,
+        seenScanId: scan.scanId,
+        fresh: scan,
+      });
+    } else {
+      setTracking({ ...tracking, lastSnapshot: snapshot });
+    }
+  }
+
+  return tracking.fresh;
+}
+
+async function postAction(
+  id: string,
+  action: TicketAction,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const res = await fetch(`/api/tickets/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action }),
   });
+  if (res.ok) return { ok: true };
+  const data = await res.json().catch(() => null);
+  return { ok: false, reason: (data?.reason as string) ?? "unknown" };
 }
 
 function ActionButton({
@@ -69,25 +161,47 @@ function TicketCard({
   ticket,
   now,
   disabled,
+  highlighted,
+  errorMessage,
   onAction,
   onDelete,
+  ref,
 }: {
   ticket: Ticket;
   now: number;
   disabled: boolean;
+  highlighted: boolean;
+  errorMessage?: string;
   onAction: (action: TicketAction) => void;
   onDelete?: () => void;
+  ref?: React.Ref<HTMLDivElement>;
 }) {
+  const meishiBlocked = ticket.status === "CALLING" && !ticket.meishiReceived;
+
   return (
     <div
-      className={`flex items-center justify-between gap-3 rounded-card border p-3 ${
+      ref={ref}
+      className={`relative flex flex-col gap-2 overflow-hidden rounded-card border p-3 ${
         ticket.status === "COMPLETED" && ticket.skipped
           ? "border-danger/40 bg-danger/10"
           : "border-rule bg-paper-2"
-      }`}
+      } ${highlighted ? "ring-2 ring-accent ring-offset-2 ring-offset-paper" : ""}`}
     >
+      {highlighted && (
+        <span
+          aria-hidden
+          className="animate-card-locate pointer-events-none absolute inset-0 rounded-card bg-accent/12"
+        />
+      )}
+
       <div className="flex items-baseline gap-3">
         <TicketNumber number={ticket.number} className="text-3xl text-ink" />
+        <span
+          className="font-outlier text-[11px] text-muted"
+          title={ticket.cardId}
+        >
+          {formatCardIdShort(ticket.cardId)}
+        </span>
         <span className="text-xs text-muted">
           {elapsedLabel(
             ticket.status === "CALLING" && ticket.calledAt
@@ -100,7 +214,35 @@ function TicketCard({
           <span className="text-xs font-semibold text-danger">スキップ</span>
         )}
       </div>
+
       <div className="flex flex-wrap items-center justify-end gap-2">
+        {ticket.status !== "COMPLETED" ? (
+          <button
+            type="button"
+            aria-pressed={ticket.meishiReceived}
+            disabled={disabled}
+            onClick={() =>
+              onAction(ticket.meishiReceived ? "meishi-off" : "meishi-on")
+            }
+            className={`mr-auto inline-flex min-h-11 items-center gap-1.5 rounded-card px-3 py-2 text-sm font-semibold transition-colors duration-[264ms] ease-out active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 ${
+              ticket.meishiReceived
+                ? "border border-accent/40 bg-accent/12 text-accent"
+                : "border border-rule-2 bg-transparent text-ink-2 hover:bg-paper-2"
+            }`}
+          >
+            {ticket.meishiReceived ? (
+              <CheckSquare size={16} />
+            ) : (
+              <Square size={16} />
+            )}
+            {ticket.meishiReceived ? "名刺 受取済" : "名刺 未受取"}
+          </button>
+        ) : (
+          <span className="mr-auto text-xs text-muted">
+            {ticket.meishiReceived ? "名刺 受取済" : "名刺 未受取"}
+          </span>
+        )}
+
         {ticket.status === "PREPARING" && (
           <>
             <ActionButton
@@ -121,7 +263,7 @@ function TicketCard({
             <ActionButton
               label="渡済み"
               tone="primary"
-              disabled={disabled}
+              disabled={disabled || meishiBlocked}
               onClick={() => onAction("complete")}
             />
             <ActionButton
@@ -154,14 +296,31 @@ function TicketCard({
             <Trash2 size={16} />
           </button>
         )}
+
+        {meishiBlocked && (
+          <p className="basis-full text-right text-xs text-muted">
+            名刺を受け取ってから渡済みにできます
+          </p>
+        )}
+        {errorMessage && (
+          <p className="basis-full text-right text-xs text-danger">
+            {errorMessage}
+          </p>
+        )}
       </div>
     </div>
   );
 }
 
 export default function AdminPage() {
-  const { snapshot, connected, preparing, calling, completed } =
-    useBoothState();
+  const {
+    snapshot,
+    connected,
+    preparing,
+    calling,
+    completed,
+    readerStatus,
+  } = useBoothState();
   const now = useNow();
   const [isPending, startTransition] = useTransition();
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
@@ -174,19 +333,127 @@ export default function AdminPage() {
     new Map(),
   );
 
+  const [actionErrors, setActionErrors] = useState<Map<string, string>>(
+    new Map(),
+  );
+  const actionErrorTimersRef = useRef<
+    Map<string, ReturnType<typeof setTimeout>>
+  >(new Map());
+
+  const cardRefsRef = useRef<Map<string, HTMLDivElement>>(new Map());
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const [highlightScanId, setHighlightScanId] = useState<number | null>(null);
+
+  const [scanVisible, setScanVisible] = useState(true);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [scanPending, startScanTransition] = useTransition();
+  const [handledScanId, setHandledScanId] = useState<number | null>(null);
+
+  const freshScan = useFreshScan(snapshot);
+
+  // 新規スキャンが来るたびに表示をリセットする(レンダー中に調整するパターン。
+  // タイマー登録・掃除は下の useEffect 側で行う)。
+  if ((freshScan?.scanId ?? null) !== handledScanId) {
+    setHandledScanId(freshScan?.scanId ?? null);
+    setScanVisible(true);
+    setScanError(null);
+  }
+
   useEffect(() => {
     if (!resetArmed) return;
     const timer = setTimeout(() => setResetArmed(false), 5000);
     return () => clearTimeout(timer);
   }, [resetArmed]);
 
-  // アンマウント時に保留中の削除タイマーを掃除する。
+  // アンマウント時に保留中のタイマーを掃除する。
   useEffect(() => {
-    const timers = deleteTimersRef.current;
+    const deleteTimers = deleteTimersRef.current;
+    const errorTimers = actionErrorTimersRef.current;
     return () => {
-      timers.forEach((timer) => clearTimeout(timer));
+      deleteTimers.forEach((timer) => clearTimeout(timer));
+      errorTimers.forEach((timer) => clearTimeout(timer));
     };
   }, []);
+
+  // 「紐付き済み」メッセージは数秒で自動的に消す
+  // (既に対応するカードは下のカンバンでハイライトされる)。
+  useEffect(() => {
+    if (freshScan?.outcome !== "bound") return;
+    const timer = setTimeout(() => setScanVisible(false), BOUND_MESSAGE_VISIBLE_MS);
+    return () => clearTimeout(timer);
+  }, [freshScan?.scanId, freshScan?.outcome]);
+
+  // 未紐付けカードの発行プロンプトは 30 秒でサーバ側から自動破棄する
+  // (リロード後に古いプロンプトが復活しないように)。
+  useEffect(() => {
+    if (freshScan?.outcome !== "unbound") return;
+    const timer = setTimeout(() => {
+      void fetch("/api/nfc/scan", { method: "DELETE" });
+    }, SCAN_AUTO_DISMISS_MS);
+    return () => clearTimeout(timer);
+  }, [freshScan?.scanId, freshScan?.outcome]);
+
+  // 既存チケットに紐づいたカードのタップ: 対応するカードへスクロール(純粋な DOM 操作
+  // のみを行う effect。setState はここでは呼ばない)。
+  useEffect(() => {
+    if (freshScan?.outcome !== "bound" || !freshScan.ticketId) return;
+    const el = cardRefsRef.current.get(freshScan.ticketId);
+    if (!el) return;
+    const reduceMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    el.scrollIntoView({
+      behavior: reduceMotion ? "auto" : "smooth",
+      block: "center",
+    });
+  }, [freshScan]);
+
+  // ハイライト対象は「レンダー中に調整する」パターンで設定する
+  // (highlightScanId state の宣言はコンポーネント冒頭にまとめてある)。
+  if (
+    freshScan?.outcome === "bound" &&
+    freshScan.ticketId &&
+    freshScan.scanId !== highlightScanId
+  ) {
+    setHighlightScanId(freshScan.scanId);
+    setHighlightedId(freshScan.ticketId);
+  }
+
+  // ハイライトの自動解除タイマー。setState はタイマーのコールバック内でのみ呼ぶ。
+  useEffect(() => {
+    if (highlightedId === null) return;
+    const timer = setTimeout(() => {
+      setHighlightedId(null);
+    }, HIGHLIGHT_DURATION_MS);
+    return () => clearTimeout(timer);
+  }, [highlightedId, highlightScanId]);
+
+  const setCardRef = useCallback(
+    (id: string) => (el: HTMLDivElement | null) => {
+      if (el) cardRefsRef.current.set(id, el);
+      else cardRefsRef.current.delete(id);
+    },
+    [],
+  );
+
+  const showActionError = (id: string, reason: string) => {
+    setActionErrors((prev) => {
+      const next = new Map(prev);
+      next.set(id, ERROR_MESSAGE[reason] ?? "操作に失敗しました");
+      return next;
+    });
+    const prevTimer = actionErrorTimersRef.current.get(id);
+    if (prevTimer) clearTimeout(prevTimer);
+    const timer = setTimeout(() => {
+      setActionErrors((prev) => {
+        const next = new Map(prev);
+        next.delete(id);
+        return next;
+      });
+      actionErrorTimersRef.current.delete(id);
+    }, ACTION_ERROR_VISIBLE_MS);
+    actionErrorTimersRef.current.set(id, timer);
+  };
 
   const withPending = (id: string, fn: () => Promise<void>) => {
     setPendingIds((prev) => new Set(prev).add(id));
@@ -203,14 +470,11 @@ export default function AdminPage() {
     });
   };
 
-  const handleIssue = () => {
-    startTransition(async () => {
-      await fetch("/api/tickets", { method: "POST" });
-    });
-  };
-
   const handleAction = (id: string, action: TicketAction) => {
-    withPending(id, () => postAction(id, action));
+    withPending(id, async () => {
+      const result = await postAction(id, action);
+      if (!result.ok) showActionError(id, result.reason);
+    });
   };
 
   // 楽観的な削除: 即座に画面から隠し、Undo トーストを出す。
@@ -267,6 +531,29 @@ export default function AdminPage() {
     });
   };
 
+  const handleIssueFromScan = () => {
+    if (!freshScan || freshScan.outcome !== "unbound") return;
+    setScanError(null);
+    startScanTransition(async () => {
+      const res = await fetch("/api/tickets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cardId: freshScan.cardId }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setScanError(data?.error ?? "発行に失敗しました");
+      }
+      // 成功時はストアが lastScan を消費して null にするので、SSE 経由で
+      // パネルは自動的に Idle に戻る。
+    });
+  };
+
+  const handleDismissScan = () => {
+    setScanError(null);
+    void fetch("/api/nfc/scan", { method: "DELETE" });
+  };
+
   const visiblePreparing = useMemo(
     () => preparing.filter((t) => !pendingDeletes.has(t.id)),
     [preparing, pendingDeletes],
@@ -290,101 +577,94 @@ export default function AdminPage() {
     [pendingDeletes],
   );
 
+  const renderCard = (ticket: Ticket, withDelete: boolean) => (
+    <TicketCard
+      key={ticket.id}
+      ref={setCardRef(ticket.id)}
+      ticket={ticket}
+      now={now}
+      disabled={pendingIds.has(ticket.id)}
+      highlighted={highlightedId === ticket.id}
+      errorMessage={actionErrors.get(ticket.id)}
+      onAction={(action) => handleAction(ticket.id, action)}
+      onDelete={withDelete ? () => handleDelete(ticket) : undefined}
+    />
+  );
+
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="font-display text-2xl text-ink">
-          BoothCall スタッフ操作
-        </h1>
-        <div className="flex items-center gap-3">
-          <ConnectionBadge connected={connected} />
-          <button
-            type="button"
-            onClick={handleReset}
-            className={`inline-flex min-h-11 items-center gap-1.5 whitespace-nowrap rounded-pill px-3 py-1 text-sm font-medium transition-colors duration-[264ms] ease-out active:translate-y-px ${
-              resetArmed
-                ? "bg-danger text-danger-ink"
-                : "border border-rule-2 bg-transparent text-ink-2 hover:bg-paper-2"
-            }`}
-          >
-            <RotateCcw size={16} />
-            {resetArmed ? "もう一度押すとリセット" : "全リセット"}
-          </button>
-        </div>
-      </header>
+    <div className="mx-auto flex min-h-dvh w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 md:h-dvh md:overflow-hidden">
+      {/* md 未満: 1カラム積み上げでページ自体がスクロールするため、操作の起点
+          (ヘッダー+スキャンパネル)を画面上部に固定する。
+          md 以上: ページは h-dvh で非スクロールの chrome になるため static に戻す。 */}
+      <div className="sticky top-0 z-20 -mx-4 -mt-4 flex shrink-0 flex-col gap-4 border-b border-rule bg-paper px-4 pt-4 pb-4 sm:-mx-6 sm:px-6 md:static md:m-0 md:border-b-0 md:p-0">
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="font-display text-2xl text-ink">
+            BoothCall スタッフ操作
+          </h1>
+          <div className="flex items-center gap-3">
+            <ReaderBadge status={readerStatus} />
+            <ConnectionBadge connected={connected} />
+            <button
+              type="button"
+              onClick={handleReset}
+              disabled={isPending}
+              className={`inline-flex min-h-11 items-center gap-1.5 whitespace-nowrap rounded-pill px-3 py-1 text-sm font-medium transition-colors duration-[264ms] ease-out active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 ${
+                resetArmed
+                  ? "bg-danger text-danger-ink"
+                  : "border border-rule-2 bg-transparent text-ink-2 hover:bg-paper-2"
+              }`}
+            >
+              <RotateCcw size={16} />
+              {resetArmed ? "もう一度押すとリセット" : "全リセット"}
+            </button>
+          </div>
+        </header>
 
-      <button
-        type="button"
-        onClick={handleIssue}
-        disabled={isPending}
-        className="flex flex-col items-center gap-1 rounded-card bg-accent py-8 text-accent-ink transition-colors duration-[264ms] ease-out active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        <span className="font-display text-lg">新規発行</span>
-        <span className="font-outlier text-5xl tabular-nums">
-          {snapshot ? formatTicketNumber(snapshot.nextNumber) : "---"}
-        </span>
-      </button>
+        <ScanPanel
+          readerStatus={readerStatus}
+          scan={scanVisible ? freshScan : null}
+          nextNumber={snapshot?.nextNumber ?? 1}
+          pending={scanPending}
+          error={scanError}
+          onIssue={handleIssueFromScan}
+          onDismiss={handleDismissScan}
+        />
+      </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <section className="flex flex-col gap-2">
-          <h2 className="font-display text-sm tracking-wide text-muted">
+      <div className="grid min-h-0 grid-cols-1 gap-4 md:flex-1 md:grid-cols-3 md:grid-rows-1">
+        <section className="flex min-h-0 flex-col gap-2">
+          <h2 className="shrink-0 font-display text-sm tracking-wide text-muted">
             準備中 ({visiblePreparing.length})
           </h2>
-          <div className="flex flex-col gap-2">
+          <div className={COLUMN_LANE}>
             {visiblePreparing.length === 0 && (
               <p className="text-sm text-muted">なし</p>
             )}
-            {visiblePreparing.map((ticket) => (
-              <TicketCard
-                key={ticket.id}
-                ticket={ticket}
-                now={now}
-                disabled={pendingIds.has(ticket.id)}
-                onAction={(action) => handleAction(ticket.id, action)}
-                onDelete={() => handleDelete(ticket)}
-              />
-            ))}
+            {visiblePreparing.map((ticket) => renderCard(ticket, true))}
           </div>
         </section>
 
-        <section className="flex flex-col gap-2">
-          <h2 className="font-display text-sm tracking-wide text-muted">
+        <section className="flex min-h-0 flex-col gap-2">
+          <h2 className="shrink-0 font-display text-sm tracking-wide text-muted">
             呼び出し中 ({visibleCalling.length})
           </h2>
-          <div className="flex flex-col gap-2">
+          <div className={COLUMN_LANE}>
             {visibleCalling.length === 0 && (
               <p className="text-sm text-muted">なし</p>
             )}
-            {visibleCalling.map((ticket) => (
-              <TicketCard
-                key={ticket.id}
-                ticket={ticket}
-                now={now}
-                disabled={pendingIds.has(ticket.id)}
-                onAction={(action) => handleAction(ticket.id, action)}
-                onDelete={() => handleDelete(ticket)}
-              />
-            ))}
+            {visibleCalling.map((ticket) => renderCard(ticket, true))}
           </div>
         </section>
 
-        <section className="flex flex-col gap-2">
-          <h2 className="font-display text-sm tracking-wide text-muted">
+        <section className="flex min-h-0 flex-col gap-2">
+          <h2 className="shrink-0 font-display text-sm tracking-wide text-muted">
             完了(直近)
           </h2>
-          <div className="flex flex-col gap-2">
+          <div className={COLUMN_LANE}>
             {visibleCompleted.length === 0 && (
               <p className="text-sm text-muted">なし</p>
             )}
-            {visibleCompleted.map((ticket) => (
-              <TicketCard
-                key={ticket.id}
-                ticket={ticket}
-                now={now}
-                disabled={pendingIds.has(ticket.id)}
-                onAction={(action) => handleAction(ticket.id, action)}
-              />
-            ))}
+            {visibleCompleted.map((ticket) => renderCard(ticket, false))}
           </div>
         </section>
       </div>

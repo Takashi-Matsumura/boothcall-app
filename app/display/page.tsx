@@ -8,6 +8,8 @@ import { SoundToggle } from "@/components/sound-toggle";
 import { TicketNumber } from "@/components/ticket-number";
 
 const MAX_PREPARING_VISIBLE = 12;
+// 呼び出し中がヒーロー以外にも複数あるケース(異常系)でも1行に収まるよう上限を設ける。
+const MAX_CALLING_REST_VISIBLE = 4;
 
 function useClock() {
   // 時計は呼ぶたびに値が変わるため useSyncExternalStore には適さない
@@ -80,15 +82,19 @@ export default function DisplayPage() {
   }, [snapshot, calling, play]);
 
   const hero = calling[0];
-  const rest = calling.slice(1);
+  const rest = calling.slice(1, 1 + MAX_CALLING_REST_VISIBLE);
+  const hiddenCallingCount = Math.max(
+    0,
+    calling.length - 1 - MAX_CALLING_REST_VISIBLE,
+  );
   const hiddenPreparingCount = Math.max(
     0,
     preparing.length - MAX_PREPARING_VISIBLE,
   );
 
   return (
-    <div className="theme-dark flex h-dvh flex-col bg-paper">
-      <header className="flex items-center justify-between border-b border-rule px-6 py-3">
+    <div className="theme-dark flex h-dvh flex-col overflow-hidden bg-paper">
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-rule px-6">
         <h1 className="font-display text-xl tracking-wide text-ink-2">
           BoothCall
         </h1>
@@ -108,10 +114,12 @@ export default function DisplayPage() {
 
       {/* Hallmark note: this hero figure is the one disclosed exception to the
           accent-restraint rule (design.md § Deliberate exception) — a booth
-          queue display's entire job is to be unmissable from across a room. */}
-      <section className="flex flex-[2] flex-col items-center justify-center gap-6 overflow-hidden px-6 py-4">
+          queue display's entire job is to be unmissable from across a room.
+          Sizing is dvh-aware (see the --text-hero-* tokens in globals.css)
+          so it never clips regardless of window size. */}
+      <section className="flex min-h-0 flex-[2] flex-col items-center justify-center gap-[clamp(0.75rem,2.2dvh,1.5rem)] overflow-hidden px-6 py-3">
         <p
-          className={`font-display text-2xl tracking-[0.2em] sm:text-3xl ${
+          className={`font-display text-hero-label tracking-[0.2em] ${
             hero ? "animate-blink text-accent-2" : "text-muted"
           }`}
         >
@@ -121,7 +129,7 @@ export default function DisplayPage() {
         {hero ? (
           <div
             key={hero.id}
-            className="animate-call-pulse text-[clamp(8rem,32vw,18rem)] leading-none text-accent-2 [overflow-wrap:anywhere] [min-width:0]"
+            className="animate-call-pulse text-hero-figure text-accent-2 [overflow-wrap:anywhere] [min-width:0]"
           >
             <TicketNumber number={hero.number} />
           </div>
@@ -131,21 +139,26 @@ export default function DisplayPage() {
           </p>
         )}
 
-        {rest.length > 0 && (
-          <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-2">
+        {(rest.length > 0 || hiddenCallingCount > 0) && (
+          <div className="flex flex-wrap items-center justify-center gap-x-[clamp(1rem,2.5vw,2.5rem)] gap-y-2">
             {rest.map((ticket) => (
               <div
                 key={ticket.id}
-                className="animate-call-in text-7xl text-accent-2/80 sm:text-8xl"
+                className="animate-call-in text-call-rest text-accent-2/80"
               >
                 <TicketNumber number={ticket.number} />
               </div>
             ))}
+            {hiddenCallingCount > 0 && (
+              <div className="text-3xl text-muted">
+                他 {hiddenCallingCount} 件
+              </div>
+            )}
           </div>
         )}
       </section>
 
-      <section className="flex flex-1 flex-col gap-3 overflow-hidden border-t border-rule bg-paper-2 px-6 py-4">
+      <section className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden border-t border-rule bg-paper-2 px-6 py-3">
         <p className="font-display text-lg tracking-[0.14em] text-muted">
           準備中
         </p>
@@ -154,7 +167,7 @@ export default function DisplayPage() {
         ) : (
           <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
             {preparing.slice(0, MAX_PREPARING_VISIBLE).map((ticket) => (
-              <div key={ticket.id} className="text-5xl text-ink-2 sm:text-6xl">
+              <div key={ticket.id} className="text-queue-num text-ink-2">
                 <TicketNumber number={ticket.number} />
               </div>
             ))}

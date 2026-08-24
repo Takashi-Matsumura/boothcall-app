@@ -30,6 +30,14 @@ export async function POST(request: NextRequest) {
   }
 
   const result = registerCard(cardId);
+  if (!result.ok) {
+    // 上限到達時はプロンプトを残す(発行失敗時の issueTicket と同じ考え方)。
+    // スタッフがエラーに気づけるよう、スキャンパネルはそのまま表示し続ける。
+    return NextResponse.json(
+      { error: "カード登録数が上限(99枚)に達しています", reason: result.reason },
+      { status: 409 },
+    );
+  }
   // このタップに由来する未登録プロンプトは消費済みなので、issueTicket と同様に
   // lastScan をクリアして SSE 経由でパネルを Idle に戻す。
   clearLastScan();

@@ -19,14 +19,12 @@ const VALID_ACTIONS: readonly TicketAction[] = [
 const STATUS_BY_REASON: Record<ActionFailureReason, number> = {
   not_found: 404,
   invalid_transition: 409,
-  meishi_required: 409,
   card_reissued: 409,
 };
 
 const MESSAGE_BY_REASON: Record<ActionFailureReason, string> = {
   not_found: "ticket not found",
   invalid_transition: "invalid transition for current status",
-  meishi_required: "cannot complete: business card not received",
   card_reissued: "cannot revert: card is already bound to another active ticket",
 };
 

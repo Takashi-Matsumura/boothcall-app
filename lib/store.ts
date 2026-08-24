@@ -11,10 +11,6 @@ import {
   type TicketActionRequest,
 } from "@/lib/types";
 
-// COMPLETED はサイネージ/画面に表示する分だけ保持すればよいので、
-// 無限に溜め続けないよう直近件数で切り詰める。
-const MAX_COMPLETED_HISTORY = 20;
-
 type Listener = (snapshot: BoothSnapshot) => void;
 
 type BoothState = {
@@ -47,7 +43,7 @@ function createInitialState(): BoothState {
 const state = (globalForStore.__boothState ??= createInitialState());
 
 /**
- * メニュー項目ごとの注文・渡済み杯数。20件に切り詰められる COMPLETED 表示とは別に、
+ * メニュー項目ごとの注文・渡済み杯数。COMPLETED 表示(全件保持)とは別に、
  * 削除されていない全チケットを対象に毎回サーバ側で算出する(件数自体は少ないので
  * 都度の集計コストは無視できる)。
  */
@@ -62,11 +58,11 @@ function computeOrderTally(): OrderTallyEntry[] {
 }
 
 function snapshot(): BoothSnapshot {
-  // COMPLETED を含む全件のうち、表示用に COMPLETED だけ直近件数に切り詰める。
+  // COMPLETED は /admin のテーブル表示でイベントを通して累積させるため、
+  // 切り詰めずに全件含める(件数は最大でもカード枚数×再利用回数程度で、
+  // 一日の展示会運用ならテーブル描画コストは無視できる)。
   const active = state.tickets.filter((t) => t.status !== "COMPLETED");
-  const completed = state.tickets
-    .filter((t) => t.status === "COMPLETED")
-    .slice(-MAX_COMPLETED_HISTORY);
+  const completed = state.tickets.filter((t) => t.status === "COMPLETED");
   const { registeredCardCount, nextRegistryNumber } = getRegistryStats();
 
   return {
@@ -177,7 +173,7 @@ export function setReaderStatus(next: ReaderStatus): void {
 
 /**
  * ステータス遷移・注文品の変更をサーバ側で検証して適用する。
- * 不正な遷移や名刺ゲート未達の場合は理由付きの失敗を返す。
+ * 不正な遷移の場合は理由付きの失敗を返す。
  */
 export function applyAction(
   id: string,
@@ -199,17 +195,11 @@ export function applyAction(
       if (ticket.status !== "CALLING") {
         return { ok: false, reason: "invalid_transition", ticket };
       }
-      // 名刺ゲート: サーバ側で強制する。上書き手段は提供しない。
-      if (!ticket.meishiReceived) {
-        return { ok: false, reason: "meishi_required", ticket };
-      }
       ticket.status = "COMPLETED";
       ticket.skipped = false;
       break;
     }
     case "skip": {
-      // 名刺ゲートを意図的にかけない: 呼び出したが客が戻らなかった状態であり、
-      // 今後名刺を渡す機会もない。ゲートを課すと永久に抜け出せなくなる。
       if (ticket.status !== "PREPARING" && ticket.status !== "CALLING") {
         return { ok: false, reason: "invalid_transition", ticket };
       }

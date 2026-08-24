@@ -102,10 +102,14 @@ export function useBoothState(): BoothStateResult {
     [snapshot],
   );
 
+  // 完了は「呼び出した(= スキップ/渡済みの直前)時刻」の新しい順。/admin が表示する
+  // 経過時間も同じ calledAt ?? createdAt を基準にしており、キーを揃えないと画面上の
+  // 経過値が並び順に対して単調にならない。準備中から直接スキップした場合は
+  // calledAt が null なので createdAt にフォールバックする。
   const completed = useMemo(
     () =>
       (snapshot?.tickets.filter((t) => t.status === "COMPLETED") ?? []).sort(
-        (a, b) => b.createdAt - a.createdAt,
+        (a, b) => (b.calledAt ?? b.createdAt) - (a.calledAt ?? a.createdAt),
       ),
     [snapshot],
   );

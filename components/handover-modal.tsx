@@ -6,7 +6,7 @@ import { menuItemLabel } from "@/lib/menu";
 import { formatCardIdShort, type Ticket } from "@/lib/types";
 
 type HandoverModalProps = {
-  /** 呼び出し中チケットへの紐付きタップで開く。null なら非表示。 */
+  /** 呼び出し中(CALLING)・準備中(PREPARING)チケットへの紐付きタップで開く。null なら非表示。 */
   ticket: Ticket | null;
   pending: boolean;
   error: string | null;
@@ -15,8 +15,10 @@ type HandoverModalProps = {
 };
 
 /**
- * 呼び出し中のカードをリーダーにかざした際、注文内容を確認した上で
- * 「渡し済みにする」操作までこの場で完結させるためのモーダル。
+ * 紐付き済みカードをリーダーにかざした際に開くモーダル。
+ * 呼び出し中(CALLING)なら注文内容を確認した上で「渡し済みにする」操作を
+ * この場で完結させ、準備中(PREPARING)ならまだ渡せないことを案内するだけの
+ * 読み取り専用表示にする(誤って渡してしまうのを防ぐ)。
  */
 export function HandoverModal({
   ticket,
@@ -36,6 +38,8 @@ export function HandoverModal({
 
   if (!ticket) return null;
 
+  const isCalling = ticket.status === "CALLING";
+
   return (
     <div
       role="presentation"
@@ -45,11 +49,13 @@ export function HandoverModal({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="お渡しの確認"
+        aria-label={isCalling ? "お渡しの確認" : "準備中の案内"}
         onClick={(event) => event.stopPropagation()}
         className="flex w-full max-w-sm flex-col items-center gap-3 rounded-card border border-rule bg-paper px-6 py-6 text-center shadow-lg"
       >
-        <p className="text-sm text-muted">呼び出し中のお渡し確認</p>
+        <p className="text-sm text-muted">
+          {isCalling ? "呼び出し中のお渡し確認" : "まだ準備中です"}
+        </p>
         <TicketNumber number={ticket.number} className="text-5xl text-ink" />
         <p className="text-base font-semibold text-ink-2">
           {menuItemLabel(ticket.item)}
@@ -57,6 +63,11 @@ export function HandoverModal({
         <p className="font-outlier text-xs text-muted" title={ticket.cardId}>
           カード {formatCardIdShort(ticket.cardId)}
         </p>
+        {!isCalling && (
+          <p className="text-sm text-muted">
+            この番号はまだ呼び出し前です。呼び出しまでお待ちいただくようご案内ください。
+          </p>
+        )}
 
         {error && <p className="text-xs text-danger">{error}</p>}
 
@@ -69,14 +80,16 @@ export function HandoverModal({
           >
             閉じる
           </button>
-          <button
-            type="button"
-            onClick={onComplete}
-            disabled={pending}
-            className="min-h-11 flex-1 whitespace-nowrap rounded-card bg-accent px-4 py-2 text-sm font-semibold text-accent-ink transition-colors duration-[264ms] ease-out active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            渡し済みにする
-          </button>
+          {isCalling && (
+            <button
+              type="button"
+              onClick={onComplete}
+              disabled={pending}
+              className="min-h-11 flex-1 whitespace-nowrap rounded-card bg-accent px-4 py-2 text-sm font-semibold text-accent-ink transition-colors duration-[264ms] ease-out active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              渡し済みにする
+            </button>
+          )}
         </div>
       </div>
     </div>

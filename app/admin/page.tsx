@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useBoothState } from "@/components/use-booth-state";
 import { ConnectionBadge } from "@/components/connection-badge";
+import { HandoverModal } from "@/components/handover-modal";
 import { ReaderBadge } from "@/components/reader-badge";
 import { ScanPanel } from "@/components/scan-panel";
 import { TicketNumber } from "@/components/ticket-number";
@@ -504,6 +505,14 @@ export default function AdminPage() {
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [highlightScanId, setHighlightScanId] = useState<number | null>(null);
 
+  // 呼び出し中チケットへの紐付きタップで開くお渡し確認モーダル。
+  const [handoverScanId, setHandoverScanId] = useState<number | null>(null);
+  const [handoverTicketId, setHandoverTicketId] = useState<string | null>(
+    null,
+  );
+  const [handoverPending, setHandoverPending] = useState(false);
+  const [handoverError, setHandoverError] = useState<string | null>(null);
+
   const [scanVisible, setScanVisible] = useState(true);
   const [scanError, setScanError] = useState<string | null>(null);
   const [scanPending, startScanTransition] = useTransition();
@@ -583,6 +592,23 @@ export default function AdminPage() {
     setHighlightedId(freshScan.ticketId);
   }
 
+  // 呼び出し中チケットへの紐付きタップ: お渡し確認モーダルを開く
+  // (ハイライト設定と同じ「レンダー中に調整する」パターン)。
+  if (
+    freshScan?.outcome === "bound" &&
+    freshScan.ticketId &&
+    freshScan.scanId !== handoverScanId
+  ) {
+    setHandoverScanId(freshScan.scanId);
+    const boundTicket = snapshot?.tickets.find(
+      (t) => t.id === freshScan.ticketId,
+    );
+    setHandoverTicketId(
+      boundTicket?.status === "CALLING" ? boundTicket.id : null,
+    );
+    setHandoverError(null);
+  }
+
   // ハイライトの自動解除タイマー。setState はタイマーのコールバック内でのみ呼ぶ。
   useEffect(() => {
     if (highlightedId === null) return;
@@ -645,6 +671,26 @@ export default function AdminPage() {
       const result = await postAction(id, request);
       if (!result.ok) showActionError(id, result.reason);
     });
+  };
+
+  const handleHandoverComplete = async () => {
+    if (!handoverTicketId) return;
+    setHandoverPending(true);
+    setHandoverError(null);
+    const result = await postAction(handoverTicketId, { action: "complete" });
+    setHandoverPending(false);
+    if (!result.ok) {
+      setHandoverError(ERROR_MESSAGE[result.reason] ?? "操作に失敗しました");
+      return;
+    }
+    setHandoverTicketId(null);
+    // このタップは消費済みなので、リロードでモーダルが復活しないよう消す。
+    void fetch("/api/nfc/scan", { method: "DELETE" });
+  };
+
+  const handleHandoverClose = () => {
+    setHandoverTicketId(null);
+    setHandoverError(null);
   };
 
   const handleToggleExpand = useCallback((id: string) => {
@@ -773,6 +819,12 @@ export default function AdminPage() {
     [completed, pendingDeletes],
   );
 
+  // 渡済み操作等で対象チケットが呼び出し中でなくなったら、モーダルも自然に閉じる。
+  const handoverTicket =
+    (handoverTicketId &&
+      visibleCalling.find((t) => t.id === handoverTicketId)) ||
+    null;
+
   const toasts: PendingDeleteToast[] = useMemo(
     () =>
       Array.from(pendingDeletes.entries()).map(([id, entry]) => ({
@@ -840,6 +892,7 @@ export default function AdminPage() {
           onIssue={handleIssueFromScan}
           onRegister={handleRegisterCard}
           onDismiss={handleDismissScan}
+          suppressBoundMessage={Boolean(handoverTicket)}
         />
       </div>
 
@@ -941,6 +994,14 @@ export default function AdminPage() {
       </div>
 
       <UndoToastStack toasts={toasts} onUndo={handleUndoDelete} />
+
+      <HandoverModal
+        ticket={handoverTicket}
+        pending={handoverPending}
+        error={handoverError}
+        onComplete={handleHandoverComplete}
+        onClose={handleHandoverClose}
+      />
     </div>
   );
 }

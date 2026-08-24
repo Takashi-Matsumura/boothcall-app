@@ -21,6 +21,9 @@ type ScanPanelProps = {
   onIssue: (item: MenuItemId) => void;
   onRegister: () => void;
   onDismiss: () => void;
+  /** 呼び出し中チケットへの紐付きタップはお渡し確認モーダル側で扱うため、
+   *  この場合は「割り当て済みです」バナーを重ねて出さない。 */
+  suppressBoundMessage?: boolean;
 };
 
 // py-* は状態ごとに個別指定する(同一詳細度の Tailwind ユーティリティは
@@ -57,6 +60,7 @@ export function ScanPanel({
   onIssue,
   onRegister,
   onDismiss,
+  suppressBoundMessage = false,
 }: ScanPanelProps) {
   // 未登録カードの検出: 恒久番号の登録確定待ち(発行とは別の操作)。
   // 「登録する」と「発行する」を混同しないよう、動詞・見た目を明確に分ける。
@@ -120,6 +124,7 @@ export function ScanPanel({
   // 既存チケットに紐づいたカードの検出: 対応するカードは下のカンバンでハイライトされる。
   // ここでは「想定内の動作」であることだけを穏やかに伝え、danger扱いにはしない。
   if (scan?.outcome === "bound") {
+    if (suppressBoundMessage) return null;
     return (
       <div className={`${PANEL_BASE} border border-rule bg-paper-2 py-3`}>
         <p className="text-sm text-muted">

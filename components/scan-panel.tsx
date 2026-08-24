@@ -1,6 +1,6 @@
 "use client";
 
-import { Nfc } from "lucide-react";
+import { CreditCard } from "lucide-react";
 import { TicketNumber } from "@/components/ticket-number";
 import { MENU_ITEMS, type MenuItemId } from "@/lib/menu";
 import {
@@ -152,7 +152,7 @@ export function ScanPanel({
   // Idle: リーダー接続済み・タップ待ち。プライマリボタンではないので accent 塗りにしない。
   return (
     <div className={`${PANEL_BASE} border border-dashed border-rule-2 bg-paper-2 py-4`}>
-      <Nfc size={28} className="text-ink-2" />
+      <CreditCard size={28} className="text-ink-2" />
       <p className="text-sm font-medium text-ink-2">カードをタッチして発行</p>
       <p className="text-xs text-muted">
         登録済み{" "}

@@ -159,7 +159,7 @@ export default function DisplayPage() {
       </section>
 
       <section className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden border-t border-rule bg-paper-2 px-6 py-3">
-        <p className="font-display text-lg tracking-[0.14em] text-muted">
+        <p className="text-lg tracking-[0.14em] text-muted">
           準備中
         </p>
         {preparing.length === 0 ? (

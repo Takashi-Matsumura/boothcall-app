@@ -552,7 +552,8 @@ export default function AdminPage() {
     setHighlightedId(freshScan.ticketId);
   }
 
-  // 呼び出し中チケットへの紐付きタップ: お渡し確認モーダルを開く
+  // 呼び出し中・準備中チケットへの紐付きタップ: モーダルを開く
+  // (呼び出し中なら渡し済み操作、準備中ならまだ渡せない旨の案内のみ)
   // (ハイライト設定と同じ「レンダー中に調整する」パターン)。
   if (
     freshScan?.outcome === "bound" &&
@@ -564,7 +565,9 @@ export default function AdminPage() {
       (t) => t.id === freshScan.ticketId,
     );
     setHandoverTicketId(
-      boundTicket?.status === "CALLING" ? boundTicket.id : null,
+      boundTicket?.status === "CALLING" || boundTicket?.status === "PREPARING"
+        ? boundTicket.id
+        : null,
     );
     setHandoverError(null);
   }
@@ -779,10 +782,12 @@ export default function AdminPage() {
     [completed, pendingDeletes],
   );
 
-  // 渡済み操作等で対象チケットが呼び出し中でなくなったら、モーダルも自然に閉じる。
+  // 呼び出す/渡済み等の操作で対象チケットが準備中・呼び出し中でなくなったら、
+  // モーダルも自然に閉じる。
   const handoverTicket =
     (handoverTicketId &&
-      visibleCalling.find((t) => t.id === handoverTicketId)) ||
+      (visiblePreparing.find((t) => t.id === handoverTicketId) ??
+        visibleCalling.find((t) => t.id === handoverTicketId))) ||
     null;
 
   const toasts: PendingDeleteToast[] = useMemo(

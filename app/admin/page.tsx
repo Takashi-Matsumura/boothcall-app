@@ -695,11 +695,13 @@ export default function AdminPage() {
     });
   };
 
-  const handleReset = () => {
+  const handleReset = (event: React.MouseEvent<HTMLButtonElement>) => {
     if (!resetArmed) {
       setResetArmed(true);
       return;
     }
+    // 誤操作防止: 武装状態でも修飾キー付きクリックでなければ何もしない。
+    if (!(event.shiftKey && event.metaKey)) return;
     setResetArmed(false);
     startTransition(async () => {
       await fetch("/api/session/reset", { method: "POST" });
@@ -824,7 +826,7 @@ export default function AdminPage() {
               }`}
             >
               <RotateCcw size={16} />
-              {resetArmed ? "もう一度押すとリセット" : "全リセット"}
+              {resetArmed ? "確認待ち" : "全リセット"}
             </button>
           </div>
         </header>

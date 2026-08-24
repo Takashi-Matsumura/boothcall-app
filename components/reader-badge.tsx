@@ -26,10 +26,11 @@ export function ReaderBadge({ status }: { status: ReaderStatus }) {
   const { icon: Icon, label, className } = CONFIG[status];
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-pill px-3 py-1 text-sm font-medium ${className}`}
+      title={label}
+      aria-label={label}
+      className={`inline-flex h-8 w-8 items-center justify-center rounded-full ${className}`}
     >
       <Icon size={16} />
-      {label}
     </span>
   );
 }

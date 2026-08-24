@@ -1,5 +1,7 @@
 "use client";
 
+import { formatTicketNumber } from "@/lib/types";
+
 export type PendingDeleteToast = {
   id: string;
   ticketNumber: number;
@@ -29,7 +31,7 @@ export function UndoToastStack({
         >
           <span className="text-sm text-ink-2">
             <span className="font-outlier tabular-nums">
-              {String(toast.ticketNumber).padStart(3, "0")}
+              {formatTicketNumber(toast.ticketNumber)}
             </span>{" "}
             を削除しました
           </span>

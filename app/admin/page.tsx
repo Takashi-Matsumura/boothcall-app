@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -8,7 +9,14 @@ import {
   useState,
   useTransition,
 } from "react";
-import { CheckSquare, RotateCcw, Square, Trash2 } from "lucide-react";
+import {
+  CheckSquare,
+  ChevronDown,
+  ChevronUp,
+  RotateCcw,
+  Square,
+  Trash2,
+} from "lucide-react";
 import { useBoothState } from "@/components/use-booth-state";
 import { ConnectionBadge } from "@/components/connection-badge";
 import { ReaderBadge } from "@/components/reader-badge";
@@ -23,6 +31,7 @@ import {
   type CardRegistration,
   type LastScan,
   type Ticket,
+  type TicketAction,
   type TicketActionRequest,
 } from "@/lib/types";
 
@@ -41,11 +50,18 @@ const COLUMN_LANE =
   "scrollbar-thumb-rule-2 scrollbar-gutter-stable md:overflow-x-clip md:overflow-y-auto md:overscroll-contain";
 
 const ERROR_MESSAGE: Record<string, string> = {
-  meishi_required: "名刺を受け取ってから渡済みにできます",
   card_reissued: "このカードは別の注文に再発行済みのため取り消せません",
   invalid_transition: "状態が変わりました。画面を確認してください",
   not_found: "このチケットは既に削除されています",
 };
+
+// これらはチケットがカラムを移らない操作なので、実行後も操作パネルを開いたままにする。
+// 呼び出す/渡済み/スキップ/準備中に戻すはカラムを移る(=行が消える)ので閉じる。
+const KEEPS_PANEL_OPEN: ReadonlySet<TicketAction> = new Set([
+  "set-item",
+  "meishi-on",
+  "meishi-off",
+]);
 
 function useNow() {
   const [now, setNow] = useState(() => Date.now());
@@ -198,12 +214,20 @@ function ActionButton({
   );
 }
 
+/**
+ * 準備中・呼び出し中チケットの1行表示(完了は CompletedTable が別に扱う)。
+ * 通常は「番号・品名・経過・主操作」だけの60px行(p-2 8 + min-h-11 44 + p-2 8)。
+ * 左側の領域をタップすると、副次操作をまとめた操作パネルが下に展開される
+ * (2026-08-25、多件数時にカード自身がボタン行を隠す不具合の修正を兼ねる)。
+ */
 function TicketCard({
   ticket,
   now,
   disabled,
   highlighted,
+  expanded,
   errorMessage,
+  onToggleExpand,
   onAction,
   onDelete,
   ref,
@@ -212,25 +236,26 @@ function TicketCard({
   now: number;
   disabled: boolean;
   highlighted: boolean;
+  expanded: boolean;
   errorMessage?: string;
+  onToggleExpand: () => void;
   onAction: (request: TicketActionRequest) => void;
-  onDelete?: () => void;
+  onDelete: () => void;
   ref?: React.Ref<HTMLDivElement>;
 }) {
-  const meishiBlocked = ticket.status === "CALLING" && !ticket.meishiReceived;
-  // COMPLETED(渡し終えた注文)は中身を書き換えると集計が実態とずれるため訂正不可
-  // (サーバ側 applyAction の "set-item" ガードと対称)。
-  const itemEditable = ticket.status !== "COMPLETED";
-  const [itemMenuOpen, setItemMenuOpen] = useState(false);
+  const isCalling = ticket.status === "CALLING";
+  const Chevron = expanded ? ChevronUp : ChevronDown;
 
   return (
     <div
       ref={ref}
-      className={`relative flex flex-col gap-2 overflow-hidden rounded-card border p-3 ${
-        ticket.status === "COMPLETED" && ticket.skipped
-          ? "border-danger/40 bg-danger/10"
-          : "border-rule bg-paper-2"
-      } ${highlighted ? "ring-2 ring-accent ring-offset-2 ring-offset-paper" : ""}`}
+      // shrink-0 が今回の修正の核心: このカードはレーン(高さが確定した縦 flex)の
+      // 子であり、これが無いと overflow-hidden が min-height:auto を 0 にする分だけ
+      // flexbox がカードを content 高より縮められてしまい、下端の操作行が切れる。
+      // overflow-hidden 自体は card-locate のウォッシュを角丸で切り抜くために必要。
+      className={`relative flex shrink-0 flex-col overflow-hidden rounded-card border border-rule bg-paper-2 ${
+        highlighted ? "ring-2 ring-accent ring-offset-2 ring-offset-paper" : ""
+      }`}
     >
       {highlighted && (
         <span
@@ -239,148 +264,209 @@ function TicketCard({
         />
       )}
 
-      <div className="flex flex-wrap items-baseline gap-3">
-        <TicketNumber number={ticket.number} className="text-3xl text-ink" />
-        {itemEditable ? (
-          <button
-            type="button"
-            aria-expanded={itemMenuOpen}
-            disabled={disabled}
-            onClick={() => setItemMenuOpen((v) => !v)}
-            className="min-h-11 whitespace-nowrap rounded-card border border-rule-2 bg-transparent px-2.5 py-1 text-sm font-semibold text-ink-2 transition-colors duration-[264ms] ease-out hover:bg-paper-2 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {menuItemLabel(ticket.item)}
-          </button>
-        ) : (
-          <span className="text-sm font-semibold text-ink-2">
+      <div className="flex items-center gap-2 p-2">
+        <button
+          type="button"
+          aria-expanded={expanded}
+          onClick={onToggleExpand}
+          title={`カード ${formatCardIdShort(ticket.cardId)}`}
+          className="flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-card px-1.5 text-left transition-colors duration-[264ms] ease-out hover:bg-paper-3 active:translate-y-px"
+        >
+          <TicketNumber number={ticket.number} className="shrink-0 text-3xl leading-none text-ink" />
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink-2">
             {menuItemLabel(ticket.item)}
           </span>
-        )}
-        <CardIdBadge cardId={ticket.cardId} className="text-[11px]" />
-        <span className="text-xs text-muted">
-          {elapsedLabel(
-            ticket.status === "CALLING" && ticket.calledAt
-              ? ticket.calledAt
-              : ticket.createdAt,
-            now,
+          {ticket.meishiReceived && (
+            <>
+              <CheckSquare size={14} aria-hidden className="shrink-0 text-muted" />
+              <span className="sr-only">名刺 受取済</span>
+            </>
           )}
-        </span>
-        {ticket.status === "COMPLETED" && ticket.skipped && (
-          <span className="text-xs font-semibold text-danger">スキップ</span>
-        )}
+          <span className="shrink-0 whitespace-nowrap text-xs tabular-nums text-muted">
+            {elapsedLabel(
+              isCalling && ticket.calledAt ? ticket.calledAt : ticket.createdAt,
+              now,
+            )}
+          </span>
+          <Chevron size={16} aria-hidden className="shrink-0 text-muted" />
+        </button>
+
+        <ActionButton
+          label={isCalling ? "渡済み" : "呼び出す"}
+          tone="primary"
+          disabled={disabled}
+          onClick={() => onAction({ action: isCalling ? "complete" : "call" })}
+        />
       </div>
 
-      {itemEditable && itemMenuOpen && (
-        <div className="flex flex-wrap gap-1.5">
-          {MENU_ITEMS.map((menuItem) => (
-            <button
-              key={menuItem.id}
-              type="button"
-              disabled={disabled}
-              onClick={() => {
-                onAction({ action: "set-item", item: menuItem.id });
-                setItemMenuOpen(false);
-              }}
-              className={`min-h-11 whitespace-nowrap rounded-card px-3 py-1.5 text-xs font-semibold transition-colors duration-[264ms] ease-out active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 ${toggleToneClass(ticket.item === menuItem.id)}`}
-            >
-              {menuItem.label}
-            </button>
-          ))}
-        </div>
+      {/* サーバ側の却下は操作パネルの開閉に関係なく必ず見える位置に出す。 */}
+      {errorMessage && (
+        <p role="status" className="px-2 pb-2 text-right text-xs text-danger">
+          {errorMessage}
+        </p>
       )}
 
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        {ticket.status !== "COMPLETED" ? (
-          <button
-            type="button"
-            aria-pressed={ticket.meishiReceived}
-            disabled={disabled}
-            onClick={() =>
-              onAction({
-                action: ticket.meishiReceived ? "meishi-off" : "meishi-on",
-              })
-            }
-            className={`mr-auto inline-flex min-h-11 items-center gap-1.5 rounded-card px-3 py-2 text-sm font-semibold transition-colors duration-[264ms] ease-out active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 ${toggleToneClass(ticket.meishiReceived)}`}
-          >
-            {ticket.meishiReceived ? (
-              <CheckSquare size={16} />
-            ) : (
-              <Square size={16} />
+      {expanded && (
+        <div className="flex flex-col gap-2 border-t border-rule p-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="px-1 text-xs text-muted">品名</span>
+            {MENU_ITEMS.map((menuItem) => (
+              <button
+                key={menuItem.id}
+                type="button"
+                aria-pressed={ticket.item === menuItem.id}
+                disabled={disabled}
+                onClick={() => onAction({ action: "set-item", item: menuItem.id })}
+                className={`min-h-11 whitespace-nowrap rounded-card px-3 py-1.5 text-xs font-semibold transition-colors duration-[264ms] ease-out active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 ${toggleToneClass(ticket.item === menuItem.id)}`}
+              >
+                {menuItem.label}
+              </button>
+            ))}
+            <CardIdBadge cardId={ticket.cardId} className="ml-auto text-[11px]" />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              aria-pressed={ticket.meishiReceived}
+              disabled={disabled}
+              onClick={() =>
+                onAction({
+                  action: ticket.meishiReceived ? "meishi-off" : "meishi-on",
+                })
+              }
+              className={`inline-flex min-h-11 items-center gap-1.5 rounded-card px-3 py-2 text-sm font-semibold transition-colors duration-[264ms] ease-out active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 ${toggleToneClass(ticket.meishiReceived)}`}
+            >
+              {ticket.meishiReceived ? (
+                <CheckSquare size={16} />
+              ) : (
+                <Square size={16} />
+              )}
+              {ticket.meishiReceived ? "名刺 受取済" : "名刺 未受取"}
+            </button>
+
+            <ActionButton
+              label="スキップ"
+              disabled={disabled}
+              onClick={() => onAction({ action: "skip" })}
+            />
+            {isCalling && (
+              <ActionButton
+                label="準備中に戻す"
+                disabled={disabled}
+                onClick={() => onAction({ action: "revert" })}
+              />
             )}
-            {ticket.meishiReceived ? "名刺 受取済" : "名刺 未受取"}
-          </button>
-        ) : (
-          <span className="mr-auto text-xs text-muted">
-            {ticket.meishiReceived ? "名刺 受取済" : "名刺 未受取"}
-          </span>
-        )}
 
-        {ticket.status === "PREPARING" && (
-          <>
-            <ActionButton
-              label="呼び出す"
-              tone="primary"
+            <button
+              type="button"
+              onClick={onDelete}
               disabled={disabled}
-              onClick={() => onAction({ action: "call" })}
-            />
-            <ActionButton
-              label="スキップ"
-              disabled={disabled}
-              onClick={() => onAction({ action: "skip" })}
-            />
-          </>
-        )}
-        {ticket.status === "CALLING" && (
-          <>
-            <ActionButton
-              label="渡済み"
-              tone="primary"
-              disabled={disabled || meishiBlocked}
-              onClick={() => onAction({ action: "complete" })}
-            />
-            <ActionButton
-              label="スキップ"
-              disabled={disabled}
-              onClick={() => onAction({ action: "skip" })}
-            />
-            <ActionButton
-              label="準備中に戻す"
-              disabled={disabled}
-              onClick={() => onAction({ action: "revert" })}
-            />
-          </>
-        )}
-        {ticket.status === "COMPLETED" && (
-          <ActionButton
-            label="取り消し"
-            disabled={disabled}
-            onClick={() => onAction({ action: "revert" })}
-          />
-        )}
-        {onDelete && (
-          <button
-            type="button"
-            onClick={onDelete}
-            disabled={disabled}
-            aria-label="削除"
-            className="grid min-h-11 min-w-11 place-items-center rounded-card text-muted transition-colors duration-[264ms] ease-out hover:bg-danger/15 hover:text-danger active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Trash2 size={16} />
-          </button>
-        )}
-
-        {meishiBlocked && (
-          <p className="basis-full text-right text-xs text-muted">
-            名刺を受け取ってから渡済みにできます
-          </p>
-        )}
-        {errorMessage && (
-          <p className="basis-full text-right text-xs text-danger">
-            {errorMessage}
-          </p>
-        )}
-      </div>
+              aria-label="削除"
+              className="ml-auto grid min-h-11 min-w-11 place-items-center rounded-card text-muted transition-colors duration-[264ms] ease-out hover:bg-danger/15 hover:text-danger active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Trash2 size={16} />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+/**
+ * 完了(直近ではなくイベント通算)の一覧。カード型だと1件ごとに縦スペースを
+ * 食い、蓄積すると探しづらくなるため、渡し済み・取り消しの2アクションだけを
+ * 残した行密度の高いテーブルにする。並び順は use-booth-state の completed
+ * (calledAt ?? createdAt の降順)にそのまま従う — ここで反転させない。
+ */
+function CompletedTable({
+  tickets,
+  now,
+  pendingIds,
+  actionErrors,
+  onAction,
+}: {
+  tickets: Ticket[];
+  now: number;
+  pendingIds: Set<string>;
+  actionErrors: Map<string, string>;
+  onAction: (id: string, request: TicketActionRequest) => void;
+}) {
+  if (tickets.length === 0) {
+    return <p className="text-sm text-muted">なし</p>;
+  }
+
+  // sticky は <thead> ではなく <th> 単位で付ける(border-collapse との組み合わせで
+  // <thead> への sticky はブラウザ差異が出やすいため)。背景色は周囲の折りたたみ
+  // パネルと合わせて bg-paper-2 にする。
+  const thClass = "sticky top-0 z-10 border-b border-rule bg-paper-2 py-1.5 pr-2 font-medium";
+
+  return (
+    <table className="w-full border-collapse text-sm">
+      <thead>
+        <tr className="text-left text-xs text-muted">
+          <th className={thClass}>番号</th>
+          <th className={thClass}>品名</th>
+          <th className={thClass}>名刺</th>
+          <th className={thClass}>経過</th>
+          <th className={`${thClass} pr-0`}>
+            <span className="sr-only">操作</span>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {tickets.map((ticket) => {
+          const disabled = pendingIds.has(ticket.id);
+          const errorMessage = actionErrors.get(ticket.id);
+          return (
+            <Fragment key={ticket.id}>
+              <tr
+                className={`border-b border-rule/60 ${
+                  ticket.skipped ? "bg-danger/10" : ""
+                }`}
+                title={`カード ${formatCardIdShort(ticket.cardId)}`}
+              >
+                <td className="py-1.5 pr-2">
+                  <TicketNumber number={ticket.number} className="text-sm text-ink" />
+                </td>
+                <td className="py-1.5 pr-2 text-ink-2">
+                  {menuItemLabel(ticket.item)}
+                  {ticket.skipped && (
+                    <span className="ml-1.5 text-xs font-semibold text-danger">
+                      スキップ
+                    </span>
+                  )}
+                </td>
+                <td className="py-1.5 pr-2 text-xs text-muted">
+                  {ticket.meishiReceived ? "受取済" : "未受取"}
+                </td>
+                <td className="py-1.5 pr-2 text-xs text-muted">
+                  {elapsedLabel(ticket.calledAt ?? ticket.createdAt, now)}
+                </td>
+                <td className="py-1.5 text-right">
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => onAction(ticket.id, { action: "revert" })}
+                    className="inline-flex min-h-11 items-center whitespace-nowrap rounded-card border border-rule-2 bg-transparent px-2.5 text-xs font-semibold text-ink-2 transition-colors duration-[264ms] ease-out hover:bg-paper-2 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    取り消し
+                  </button>
+                </td>
+              </tr>
+              {errorMessage && (
+                <tr>
+                  <td colSpan={5} className="pb-1.5 text-right text-xs text-danger">
+                    {errorMessage}
+                  </td>
+                </tr>
+              )}
+            </Fragment>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }
 
@@ -397,6 +483,8 @@ export default function AdminPage() {
   const [isPending, startTransition] = useTransition();
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
   const [resetArmed, setResetArmed] = useState(false);
+  // 展開中のチケット行(単一アコーディオン)。複数同時展開は密度の利点を消すため許さない。
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const [pendingDeletes, setPendingDeletes] = useState<
     Map<string, { ticketNumber: number; closing: boolean }>
@@ -547,15 +635,26 @@ export default function AdminPage() {
   };
 
   const handleAction = (id: string, request: TicketActionRequest) => {
+    // カラムを移る操作(呼び出す/渡済み/スキップ/準備中に戻す)はこの行を
+    // アンマウントさせるので、展開中なら閉じておく。品名変更・名刺トグルは
+    // カラムを移らないので開いたままにする(KEEPS_PANEL_OPEN)。
+    if (expandedId === id && !KEEPS_PANEL_OPEN.has(request.action)) {
+      setExpandedId(null);
+    }
     withPending(id, async () => {
       const result = await postAction(id, request);
       if (!result.ok) showActionError(id, result.reason);
     });
   };
 
+  const handleToggleExpand = useCallback((id: string) => {
+    setExpandedId((prev) => (prev === id ? null : id));
+  }, []);
+
   // 楽観的な削除: 即座に画面から隠し、Undo トーストを出す。
   // 猶予時間が過ぎてから実際に DELETE を送る(Undo されれば送らない)。
   const handleDelete = (ticket: Ticket) => {
+    setExpandedId((prev) => (prev === ticket.id ? null : prev));
     setPendingDeletes((prev) => {
       const next = new Map(prev);
       next.set(ticket.id, { ticketNumber: ticket.number, closing: false });
@@ -682,7 +781,7 @@ export default function AdminPage() {
     [pendingDeletes],
   );
 
-  const renderCard = (ticket: Ticket, withDelete: boolean) => (
+  const renderCard = (ticket: Ticket) => (
     <TicketCard
       key={ticket.id}
       ref={setCardRef(ticket.id)}
@@ -690,9 +789,11 @@ export default function AdminPage() {
       now={now}
       disabled={pendingIds.has(ticket.id)}
       highlighted={highlightedId === ticket.id}
+      expanded={expandedId === ticket.id}
       errorMessage={actionErrors.get(ticket.id)}
+      onToggleExpand={() => handleToggleExpand(ticket.id)}
       onAction={(request) => handleAction(ticket.id, request)}
-      onDelete={withDelete ? () => handleDelete(ticket) : undefined}
+      onDelete={() => handleDelete(ticket)}
     />
   );
 
@@ -740,7 +841,7 @@ export default function AdminPage() {
         />
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex shrink-0 flex-wrap gap-2">
         <details
           className="w-full shrink-0 rounded-card border border-rule bg-paper-2 open:pb-2 sm:w-auto sm:flex-1 sm:basis-64"
           onToggle={handleRegistryToggle}
@@ -792,18 +893,35 @@ export default function AdminPage() {
             ))}
           </div>
         </details>
+
+        <details className="w-full shrink-0 rounded-card border border-rule bg-paper-2 open:pb-2 sm:w-auto sm:flex-1 sm:basis-64">
+          <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium text-ink-2">
+            完了 ({visibleCompleted.length} 件)
+          </summary>
+          {/* 縦スクロールと高さ上限を同じ要素に持たせる — CompletedTable の
+              thead sticky はこの要素をスクロールポートとして効かせる必要がある。 */}
+          <div className="max-h-64 overflow-auto px-3 scrollbar-thin scrollbar-thumb-rule-2">
+            <CompletedTable
+              tickets={visibleCompleted}
+              now={now}
+              pendingIds={pendingIds}
+              actionErrors={actionErrors}
+              onAction={handleAction}
+            />
+          </div>
+        </details>
       </div>
 
-      <div className="grid min-h-0 grid-cols-1 gap-4 md:flex-1 md:grid-cols-3 md:grid-rows-1">
+      <div className="grid min-h-0 grid-cols-1 gap-4 md:flex-1 md:grid-cols-2 md:grid-rows-1">
         <section className="flex min-h-0 flex-col gap-2">
           <h2 className="shrink-0 font-display text-sm tracking-wide text-muted">
             準備中 ({visiblePreparing.length})
           </h2>
           <div className={COLUMN_LANE}>
             {visiblePreparing.length === 0 && (
-              <p className="text-sm text-muted">なし</p>
+              <p className="shrink-0 text-sm text-muted">なし</p>
             )}
-            {visiblePreparing.map((ticket) => renderCard(ticket, true))}
+            {visiblePreparing.map((ticket) => renderCard(ticket))}
           </div>
         </section>
 
@@ -813,21 +931,9 @@ export default function AdminPage() {
           </h2>
           <div className={COLUMN_LANE}>
             {visibleCalling.length === 0 && (
-              <p className="text-sm text-muted">なし</p>
+              <p className="shrink-0 text-sm text-muted">なし</p>
             )}
-            {visibleCalling.map((ticket) => renderCard(ticket, true))}
-          </div>
-        </section>
-
-        <section className="flex min-h-0 flex-col gap-2">
-          <h2 className="shrink-0 font-display text-sm tracking-wide text-muted">
-            完了(直近)
-          </h2>
-          <div className={COLUMN_LANE}>
-            {visibleCompleted.length === 0 && (
-              <p className="text-sm text-muted">なし</p>
-            )}
-            {visibleCompleted.map((ticket) => renderCard(ticket, false))}
+            {visibleCalling.map((ticket) => renderCard(ticket))}
           </div>
         </section>
       </div>

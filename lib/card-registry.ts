@@ -7,6 +7,9 @@ import type { CardRegistration, RegisterCardResult } from "@/lib/types";
 // セッション・スキャン等)とは異なり、サーバ再起動をまたいで保持する必要がある。
 const REGISTRY_PATH = path.join(process.cwd(), "data", "card-registry.json");
 
+// 展示会で運用するカードは最大99枚(整理番号を2桁表示に収める前提)。
+const MAX_REGISTERED_CARDS = 99;
+
 type RegistryFile = {
   version: 1;
   /** 次に新規登録されるカードに割り当てられる番号。 */
@@ -89,14 +92,18 @@ export function registerCard(cardId: string): RegisterCardResult {
   const runtime = loadRegistry();
   const existing = runtime.data.cards[cardId];
   if (existing) {
-    return { cardId, number: existing.number, alreadyRegistered: true };
+    return { ok: true, cardId, number: existing.number, alreadyRegistered: true };
+  }
+
+  if (runtime.data.nextNumber > MAX_REGISTERED_CARDS) {
+    return { ok: false, reason: "registry_full" };
   }
 
   const number = runtime.data.nextNumber;
   runtime.data.cards[cardId] = { number, registeredAt: Date.now() };
   runtime.data.nextNumber = number + 1;
   persist(runtime.data);
-  return { cardId, number, alreadyRegistered: false };
+  return { ok: true, cardId, number, alreadyRegistered: false };
 }
 
 export function listRegisteredCards(): CardRegistration[] {

@@ -55,6 +55,15 @@ button became three (one per menu item) — each is the same small button
 size as before, so the aggregate accent-filled area barely moves and stays
 well inside the ≤3–5% ceiling.
 
+The 2026-08-25 `/admin` density rework changes the composition of admin
+accent, not the ceiling. A collapsed ticket row exposes exactly one
+filled-accent button (呼び出す / 渡済み) and nothing else — every secondary
+and the 名刺 toggle move behind the row's disclosure — so the resting
+accent area per ticket falls even as the visible ticket count per lane
+roughly triples (60px rows vs. the old ~164px cards). At the stated 準備中
+peak of 10 tickets this still lands well inside the ≤3–5% ceiling; it is
+the ceiling that governs, not a new exception.
+
 ## Macrostructure family
 - `/display`: **Stat-Led** (H4) — giant tabular-nums figure + worded state,
   supporting list below.
@@ -104,13 +113,22 @@ the dark-mode recipe — never switch hue between modes):
   is glyph-level disambiguation against a physical card, and a proportional
   face would invite 0/O and 1/l misreads. Role 3 must never grow past a
   caption: never a heading, never larger than 11px, never shown on `/display`.
+  2026-08-25 revision: on `/admin` the IDm caption now lives inside the
+  ticket row's expanded action panel rather than on the resting row — the
+  60px collapsed row has no room for it, and the card-locate highlight plus
+  the permanent sticker number already answer "which card is this?" without
+  it (the row keeps it on `title` for hover). Same treatment, same role
+  count. The collapsed row's 経過 label stays in the **body** face with
+  `tabular-nums` — elapsed time is not an Outlier role and must never
+  acquire `font-outlier`.
 - Display tracking: -0.006em
 - Type scale anchor: `--text-display: clamp(2.85rem, 5.2vw + 1rem, 5rem)`
   (admin headings); the `/display` hero figure is its own scale — see
   per-page allowances, it deliberately exceeds the 5.5rem display ceiling
   because a single tabular numeral group is the named exception in
   typography.md ("a single-line, single-word display that occupies ≤ 12 ch
-  can grow to 7rem" — the ticket figure is 3 digits, well under that).
+  can grow to 7rem" — the ticket figure is 2 digits (01–99, card supply
+  capped at 99 as of 2026-08-25 — was 3 digits), well under that).
   2026-08-01 revision: the hero figure's `clamp()` (`--text-hero-figure` in
   `app/globals.css`) is now bounded by **available height (`dvh`), not just
   width** — a booth PC's actual window/monitor size isn't known in advance,
@@ -144,18 +162,26 @@ named tokens (`var(--space-md)`), never raw values.
   tapped FeliCa card, ≤ `--dur-long`, non-repeating, paired with a
   programmatic `scrollIntoView`. Added 2026-08-01 for the NFC pickup-card
   workflow: the tap happens away from the screen, so the software must answer
-  "which row did I just touch?" — without it, staff hunt three columns by eye
-  while a customer waits.
+  "which row did I just touch?" — without it, staff hunt the columns by eye
+  while a customer waits. 2026-08-25: the `/admin` ticket row's expand/collapse
+  disclosure is **not** a fifth primitive — the panel is mounted or not (a
+  plain conditional render, the same precedent set for the 2026-08-01 item
+  chip), and the chevron is an icon **swap** (`ChevronDown`/`ChevronUp`), not
+  a rotation transition. Primitive 4 (card-locate) is unchanged and
+  deliberately does **not** auto-expand the located row: the wash is a
+  ≤`--dur-long` attention cue, and growing the row from 60px to ~170px
+  mid-`scrollIntoView` would move the target out from under the scroll that
+  was just queued for it.
 
 ## Microinteractions stance
 - Silent success on status changes (call / complete / skip / revert) — the
   ticket visibly moves column/state, no toast.
-- Blocked actions are never silent. 渡済み stays visible and
-  `disabled:opacity-50` with a persistent inline reason beneath it
-  (「名刺の受け取り待ち」) — a disabled control must explain itself.
-  Server-side rejections (`card_in_use`, `card_reissued`, `meishi_required`)
-  surface as a one-line inline message on the scan panel or the ticket card —
-  never a toast; the toast slot is reserved for the delete/undo primitive.
+- Blocked actions are never silent. Server-side rejections (`card_in_use`,
+  `card_reissued`) surface as a one-line inline message on the scan panel or
+  the ticket card/row — never a toast; the toast slot is reserved for the
+  delete/undo primitive. 渡済み itself is never blocked (2026-08-25 removal
+  of the 名刺 gate, see Provenance) — 名刺受取 stays a passive record, not a
+  precondition.
 - Optimistic delete + 5–10s Undo toast (replaces the old no-feedback delete).
 - Full-session reset keeps its two-stage inline confirm (genuinely
   destructive/irreversible mid-show) — this is the one confirm-style
@@ -165,6 +191,15 @@ named tokens (`var(--space-md)`), never raw values.
   itself. A tap only *selects* a card — nothing has yet happened that needs
   confirming.
 - Hover delay 800ms / focus delay 0ms wherever a tooltip is used.
+- `/admin` ticket rows (2026-08-25) are a **single-open accordion**: opening
+  one row's action panel closes any other. It is a disclosure, not a menu —
+  no overlay, no focus trap, no dismiss-on-outside-click. It closes
+  automatically when that row's own status changes (呼び出す / 渡済み /
+  スキップ / 準備中に戻す), because the row is about to leave the column;
+  品名変更 and 名刺 keep it open, because the row stays put.
+- An inline action error on a ticket row renders below the collapsed row
+  and is shown whether or not its panel is open — a server rejection must
+  never be hidden behind a disclosure.
 
 ## CTA voice
 - Primary action (issue ticket, call, complete): filled, `--color-accent`
@@ -180,6 +215,14 @@ named tokens (`var(--space-md)`), never raw values.
   transparent fill.
 - Destructive (delete): ghost/icon button, red on hover/focus only — never a
   filled red button sitting at rest.
+- 2026-08-25 `/admin` density rework: the collapsed ticket row carries
+  **only** the primary — 呼び出す for 準備中, 渡済み for 呼び出し中 —
+  filled accent, `--radius-card`, `min-h-11`, unchanged in size. Every
+  secondary (スキップ, 準備中に戻す, 品名) and the destructive delete move
+  behind the row's disclosure panel. The role definitions above are
+  unchanged; only their resting visibility is. Moving delete behind the
+  disclosure honours the destructive rule more strictly than before — it is
+  no longer one thumb-width from the primary on a booth tablet.
 
 ## Per-page allowances
 - `/display` MUST NOT use any enrichment tier — it is pure typography, and the
@@ -269,3 +312,41 @@ named tokens (`var(--space-md)`), never raw values.
   reveal), no new Outlier role (item labels are Japanese menu names — body
   font, not the numeral/hex-caption mono), no `/display` change, no
   macrostructure change.
+- 2026-08-25 amendment (hand-edited, not a hallmark run): booth-ops tuning
+  after a real-event flow review. (1) Card supply capped at 99, ticket
+  numbers dropped from 3 digits to 2 (see Typography above) — no Outlier
+  treatment change, same role. (2) The 名刺 gate on 渡済み is removed:
+  受取済み is now a passive record only, never blocks completion (see
+  Microinteractions above) — coffee can be handed over before/without the
+  business card. (3) The 完了 column on `/admin` changed from stacked
+  `TicketCard`s to a dense `<table>` (番号/品名/名刺/経過/取り消し — カードIDm
+  moved to a row `title` tooltip to keep the table narrow enough to avoid
+  horizontal scroll)
+  because completions now accumulate for the whole event instead of being
+  capped at the last 20 — a table scales to that volume where repeated full
+  cards would not. Ticket numbers inside the table still use the shared
+  `TicketNumber` Outlier component (no new numeral treatment). No new
+  colours, no new motion primitive, no macrostructure change — the table is
+  still `/admin`'s existing "component-cookbook state discipline applied
+  directly" register, just a denser primitive for one column.
+- 2026-08-25 amendment (hand-edited, not a hallmark run, same day as the
+  above): `/admin` density and layout rework, prompted by a booth-blocking
+  bug. With several tickets present, each `TicketCard` was a flex item of a
+  height-constrained lane with no `shrink-0`; the card's own
+  `overflow-hidden` (needed to clip the card-locate wash to the card radius)
+  zeroed its automatic minimum size, so flexbox compressed it below its
+  content height and sheared off the 渡済み/スキップ row. Three changes:
+  (1) the kanban drops from three columns to two (準備中 / 呼び出し中) and
+  完了 moves into the collapsible top row beside 登録済みカード and
+  注文集計 (same `CompletedTable` from the entry above, now in a
+  `max-h-64 overflow-auto` scroller instead of a kanban lane), roughly
+  doubling each lane's width; (2) `TicketCard` becomes a 60px single row —
+  番号 / 品名 / 経過 / primary action — with every secondary action behind
+  a tap-to-expand disclosure on the row itself (see CTA voice,
+  Microinteractions, Motion, Typography above), and the two-level 品名
+  chip→menu is flattened into that one panel; (3) the lanes now genuinely
+  scroll instead of crushing their children. Every interactive control
+  keeps `min-h-11`. No new colours, no new font roles, no new motion
+  primitive (the count stays at four), no enrichment, no macrostructure
+  change — `/admin` is still a kanban dashboard running component-cookbook
+  state discipline directly, at a higher density.

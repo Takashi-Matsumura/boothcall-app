@@ -13,7 +13,7 @@ export type Ticket = {
   skipped: boolean;
   /** 紐づく FeliCa カードの IDm(正規化済み・小文字16進)。カード無しのチケットは存在しない。 */
   cardId: string;
-  /** 担当者の名刺を受け取ったか。false の間は complete(渡済み) を禁止する。 */
+  /** 担当者の名刺を受け取ったか。記録用途のみで、complete(渡済み)の必須条件ではない。 */
   meishiReceived: boolean;
   /** 名刺受領フラグを ON にした時刻。運用ログ用途、UI 表示では未使用。 */
   meishiReceivedAt: number | null;
@@ -51,7 +51,7 @@ export type ReaderStatus = "unavailable" | "disconnected" | "connected";
 export type BoothSnapshot = {
   /** 変更のたびに +1。クライアント側の重複処理検知に使う。 */
   version: number;
-  /** COMPLETED は直近 20 件のみ含む。 */
+  /** COMPLETED はイベント開始からの全件を含む(切り詰めなし)。 */
   tickets: Ticket[];
   serverTime: number;
   /** 直近のカードタップ。未タップ・破棄済みは null。 */
@@ -85,7 +85,6 @@ export type TicketAction = TicketActionRequest["action"];
 export type ActionFailureReason =
   | "not_found"
   | "invalid_transition"
-  | "meishi_required"
   | "card_reissued";
 
 export type ActionResult =
@@ -104,15 +103,18 @@ export type CardRegistration = {
   registeredAt: number;
 };
 
-export type RegisterCardResult = {
-  cardId: string;
-  number: number;
-  /** 既に登録済みだった(冪等に既存の番号を返した)場合 true。 */
-  alreadyRegistered: boolean;
-};
+export type RegisterCardResult =
+  | {
+      ok: true;
+      cardId: string;
+      number: number;
+      /** 既に登録済みだった(冪等に既存の番号を返した)場合 true。 */
+      alreadyRegistered: boolean;
+    }
+  | { ok: false; reason: "registry_full" };
 
 export function formatTicketNumber(n: number): string {
-  return String(n).padStart(3, "0");
+  return String(n).padStart(2, "0");
 }
 
 // FeliCa の IDm は 16 桁の16進文字列だが、実機到着前の検証で 8 桁(MIFARE 等)の

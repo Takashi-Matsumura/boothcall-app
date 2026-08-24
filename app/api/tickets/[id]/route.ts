@@ -11,8 +11,6 @@ const VALID_ACTIONS: readonly TicketAction[] = [
   "complete",
   "skip",
   "revert",
-  "meishi-on",
-  "meishi-off",
   "set-item",
 ];
 

@@ -13,10 +13,6 @@ export type Ticket = {
   skipped: boolean;
   /** 紐づく FeliCa カードの IDm(正規化済み・小文字16進)。カード無しのチケットは存在しない。 */
   cardId: string;
-  /** 担当者の名刺を受け取ったか。記録用途のみで、complete(渡済み)の必須条件ではない。 */
-  meishiReceived: boolean;
-  /** 名刺受領フラグを ON にした時刻。運用ログ用途、UI 表示では未使用。 */
-  meishiReceivedAt: number | null;
   /** 注文されたコーヒーの種類(lib/menu.ts)。チケットは必ず1種類を持つ。 */
   item: MenuItemId;
 };
@@ -75,9 +71,7 @@ export type OrderTallyEntry = {
 };
 
 export type TicketActionRequest =
-  | {
-      action: "call" | "complete" | "skip" | "revert" | "meishi-on" | "meishi-off";
-    }
+  | { action: "call" | "complete" | "skip" | "revert" }
   | { action: "set-item"; item: MenuItemId };
 
 export type TicketAction = TicketActionRequest["action"];

@@ -1,12 +1,12 @@
-import { Nfc, Unplug } from "lucide-react";
+import { CreditCard, Unplug } from "lucide-react";
 import type { ReaderStatus } from "@/lib/types";
 
 const CONFIG: Record<
   ReaderStatus,
-  { icon: typeof Nfc; label: string; className: string }
+  { icon: typeof CreditCard; label: string; className: string }
 > = {
   connected: {
-    icon: Nfc,
+    icon: CreditCard,
     label: "リーダー接続",
     className: "bg-accent/15 text-accent",
   },
@@ -16,7 +16,7 @@ const CONFIG: Record<
     className: "bg-danger/15 text-danger",
   },
   unavailable: {
-    icon: Nfc,
+    icon: CreditCard,
     label: "NFC無効",
     className: "bg-paper-3 text-muted",
   },
@@ -26,10 +26,11 @@ export function ReaderBadge({ status }: { status: ReaderStatus }) {
   const { icon: Icon, label, className } = CONFIG[status];
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-pill px-3 py-1 text-sm font-medium ${className}`}
+      title={label}
+      aria-label={label}
+      className={`inline-flex h-8 w-8 items-center justify-center rounded-full ${className}`}
     >
       <Icon size={16} />
-      {label}
     </span>
   );
 }

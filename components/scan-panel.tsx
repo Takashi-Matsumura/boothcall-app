@@ -1,6 +1,6 @@
 "use client";
 
-import { Nfc } from "lucide-react";
+import { CreditCard } from "lucide-react";
 import { TicketNumber } from "@/components/ticket-number";
 import { MENU_ITEMS, type MenuItemId } from "@/lib/menu";
 import {
@@ -21,6 +21,9 @@ type ScanPanelProps = {
   onIssue: (item: MenuItemId) => void;
   onRegister: () => void;
   onDismiss: () => void;
+  /** 呼び出し中チケットへの紐付きタップはお渡し確認モーダル側で扱うため、
+   *  この場合は「割り当て済みです」バナーを重ねて出さない。 */
+  suppressBoundMessage?: boolean;
 };
 
 // py-* は状態ごとに個別指定する(同一詳細度の Tailwind ユーティリティは
@@ -57,6 +60,7 @@ export function ScanPanel({
   onIssue,
   onRegister,
   onDismiss,
+  suppressBoundMessage = false,
 }: ScanPanelProps) {
   // 未登録カードの検出: 恒久番号の登録確定待ち(発行とは別の操作)。
   // 「登録する」と「発行する」を混同しないよう、動詞・見た目を明確に分ける。
@@ -120,6 +124,7 @@ export function ScanPanel({
   // 既存チケットに紐づいたカードの検出: 対応するカードは下のカンバンでハイライトされる。
   // ここでは「想定内の動作」であることだけを穏やかに伝え、danger扱いにはしない。
   if (scan?.outcome === "bound") {
+    if (suppressBoundMessage) return null;
     return (
       <div className={`${PANEL_BASE} border border-rule bg-paper-2 py-3`}>
         <p className="text-sm text-muted">
@@ -152,7 +157,7 @@ export function ScanPanel({
   // Idle: リーダー接続済み・タップ待ち。プライマリボタンではないので accent 塗りにしない。
   return (
     <div className={`${PANEL_BASE} border border-dashed border-rule-2 bg-paper-2 py-4`}>
-      <Nfc size={28} className="text-ink-2" />
+      <CreditCard size={28} className="text-ink-2" />
       <p className="text-sm font-medium text-ink-2">カードをタッチして発行</p>
       <p className="text-xs text-muted">
         登録済み{" "}

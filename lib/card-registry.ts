@@ -129,7 +129,12 @@ export function removeCardRegistration(cardId: string): boolean {
   if (!entry) return false;
 
   delete runtime.data.cards[cardId];
-  if (entry.number === runtime.data.nextNumber - 1) {
+  if (Object.keys(runtime.data.cards).length === 0) {
+    // 登録が1枚もない状態まで戻ったら、一部削除時の欠番維持ルールを
+    // 引きずらず採番を1からやり直す(次の新規登録が連番の続きから
+    // 始まってしまうのを防ぐ)。
+    runtime.data.nextNumber = 1;
+  } else if (entry.number === runtime.data.nextNumber - 1) {
     runtime.data.nextNumber = entry.number;
   }
   persist(runtime.data);

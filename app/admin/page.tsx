@@ -9,16 +9,10 @@ import {
   useState,
   useTransition,
 } from "react";
-import {
-  CheckSquare,
-  ChevronDown,
-  ChevronUp,
-  RotateCcw,
-  Square,
-  Trash2,
-} from "lucide-react";
+import { ChevronDown, ChevronUp, RotateCcw, Trash2 } from "lucide-react";
 import { useBoothState } from "@/components/use-booth-state";
 import { ConnectionBadge } from "@/components/connection-badge";
+import { HandoverModal } from "@/components/handover-modal";
 import { ReaderBadge } from "@/components/reader-badge";
 import { ScanPanel } from "@/components/scan-panel";
 import { TicketNumber } from "@/components/ticket-number";
@@ -57,11 +51,7 @@ const ERROR_MESSAGE: Record<string, string> = {
 
 // これらはチケットがカラムを移らない操作なので、実行後も操作パネルを開いたままにする。
 // 呼び出す/渡済み/スキップ/準備中に戻すはカラムを移る(=行が消える)ので閉じる。
-const KEEPS_PANEL_OPEN: ReadonlySet<TicketAction> = new Set([
-  "set-item",
-  "meishi-on",
-  "meishi-off",
-]);
+const KEEPS_PANEL_OPEN: ReadonlySet<TicketAction> = new Set(["set-item"]);
 
 function useNow() {
   const [now, setNow] = useState(() => Date.now());
@@ -164,7 +154,7 @@ async function postScanAction(
   return data?.error ?? fallbackMessage;
 }
 
-/** トグル系ボタンの ON/OFF 配色(名刺トグル・注文品選択で共通)。 */
+/** トグル系ボタンの ON/OFF 配色(注文品選択で使用)。 */
 function toggleToneClass(active: boolean): string {
   return active
     ? "border border-accent/40 bg-accent/12 text-accent"
@@ -276,12 +266,6 @@ function TicketCard({
           <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink-2">
             {menuItemLabel(ticket.item)}
           </span>
-          {ticket.meishiReceived && (
-            <>
-              <CheckSquare size={14} aria-hidden className="shrink-0 text-muted" />
-              <span className="sr-only">名刺 受取済</span>
-            </>
-          )}
           <span className="shrink-0 whitespace-nowrap text-xs tabular-nums text-muted">
             {elapsedLabel(
               isCalling && ticket.calledAt ? ticket.calledAt : ticket.createdAt,
@@ -326,25 +310,6 @@ function TicketCard({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              aria-pressed={ticket.meishiReceived}
-              disabled={disabled}
-              onClick={() =>
-                onAction({
-                  action: ticket.meishiReceived ? "meishi-off" : "meishi-on",
-                })
-              }
-              className={`inline-flex min-h-11 items-center gap-1.5 rounded-card px-3 py-2 text-sm font-semibold transition-colors duration-[264ms] ease-out active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 ${toggleToneClass(ticket.meishiReceived)}`}
-            >
-              {ticket.meishiReceived ? (
-                <CheckSquare size={16} />
-              ) : (
-                <Square size={16} />
-              )}
-              {ticket.meishiReceived ? "名刺 受取済" : "名刺 未受取"}
-            </button>
-
             <ActionButton
               label="スキップ"
               disabled={disabled}
@@ -408,7 +373,6 @@ function CompletedTable({
         <tr className="text-left text-xs text-muted">
           <th className={thClass}>番号</th>
           <th className={thClass}>品名</th>
-          <th className={thClass}>名刺</th>
           <th className={thClass}>経過</th>
           <th className={`${thClass} pr-0`}>
             <span className="sr-only">操作</span>
@@ -439,9 +403,6 @@ function CompletedTable({
                   )}
                 </td>
                 <td className="py-1.5 pr-2 text-xs text-muted">
-                  {ticket.meishiReceived ? "受取済" : "未受取"}
-                </td>
-                <td className="py-1.5 pr-2 text-xs text-muted">
                   {elapsedLabel(ticket.calledAt ?? ticket.createdAt, now)}
                 </td>
                 <td className="py-1.5 text-right">
@@ -457,7 +418,7 @@ function CompletedTable({
               </tr>
               {errorMessage && (
                 <tr>
-                  <td colSpan={5} className="pb-1.5 text-right text-xs text-danger">
+                  <td colSpan={4} className="pb-1.5 text-right text-xs text-danger">
                     {errorMessage}
                   </td>
                 </tr>
@@ -503,6 +464,14 @@ export default function AdminPage() {
   const cardRefsRef = useRef<Map<string, HTMLDivElement>>(new Map());
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [highlightScanId, setHighlightScanId] = useState<number | null>(null);
+
+  // 呼び出し中チケットへの紐付きタップで開くお渡し確認モーダル。
+  const [handoverScanId, setHandoverScanId] = useState<number | null>(null);
+  const [handoverTicketId, setHandoverTicketId] = useState<string | null>(
+    null,
+  );
+  const [handoverPending, setHandoverPending] = useState(false);
+  const [handoverError, setHandoverError] = useState<string | null>(null);
 
   const [scanVisible, setScanVisible] = useState(true);
   const [scanError, setScanError] = useState<string | null>(null);
@@ -583,6 +552,23 @@ export default function AdminPage() {
     setHighlightedId(freshScan.ticketId);
   }
 
+  // 呼び出し中チケットへの紐付きタップ: お渡し確認モーダルを開く
+  // (ハイライト設定と同じ「レンダー中に調整する」パターン)。
+  if (
+    freshScan?.outcome === "bound" &&
+    freshScan.ticketId &&
+    freshScan.scanId !== handoverScanId
+  ) {
+    setHandoverScanId(freshScan.scanId);
+    const boundTicket = snapshot?.tickets.find(
+      (t) => t.id === freshScan.ticketId,
+    );
+    setHandoverTicketId(
+      boundTicket?.status === "CALLING" ? boundTicket.id : null,
+    );
+    setHandoverError(null);
+  }
+
   // ハイライトの自動解除タイマー。setState はタイマーのコールバック内でのみ呼ぶ。
   useEffect(() => {
     if (highlightedId === null) return;
@@ -636,7 +622,7 @@ export default function AdminPage() {
 
   const handleAction = (id: string, request: TicketActionRequest) => {
     // カラムを移る操作(呼び出す/渡済み/スキップ/準備中に戻す)はこの行を
-    // アンマウントさせるので、展開中なら閉じておく。品名変更・名刺トグルは
+    // アンマウントさせるので、展開中なら閉じておく。品名変更は
     // カラムを移らないので開いたままにする(KEEPS_PANEL_OPEN)。
     if (expandedId === id && !KEEPS_PANEL_OPEN.has(request.action)) {
       setExpandedId(null);
@@ -645,6 +631,26 @@ export default function AdminPage() {
       const result = await postAction(id, request);
       if (!result.ok) showActionError(id, result.reason);
     });
+  };
+
+  const handleHandoverComplete = async () => {
+    if (!handoverTicketId) return;
+    setHandoverPending(true);
+    setHandoverError(null);
+    const result = await postAction(handoverTicketId, { action: "complete" });
+    setHandoverPending(false);
+    if (!result.ok) {
+      setHandoverError(ERROR_MESSAGE[result.reason] ?? "操作に失敗しました");
+      return;
+    }
+    setHandoverTicketId(null);
+    // このタップは消費済みなので、リロードでモーダルが復活しないよう消す。
+    void fetch("/api/nfc/scan", { method: "DELETE" });
+  };
+
+  const handleHandoverClose = () => {
+    setHandoverTicketId(null);
+    setHandoverError(null);
   };
 
   const handleToggleExpand = useCallback((id: string) => {
@@ -695,11 +701,13 @@ export default function AdminPage() {
     });
   };
 
-  const handleReset = () => {
+  const handleReset = (event: React.MouseEvent<HTMLButtonElement>) => {
     if (!resetArmed) {
       setResetArmed(true);
       return;
     }
+    // 誤操作防止: 武装状態でも修飾キー付きクリックでなければ何もしない。
+    if (!(event.shiftKey && event.metaKey)) return;
     setResetArmed(false);
     startTransition(async () => {
       await fetch("/api/session/reset", { method: "POST" });
@@ -771,6 +779,12 @@ export default function AdminPage() {
     [completed, pendingDeletes],
   );
 
+  // 渡済み操作等で対象チケットが呼び出し中でなくなったら、モーダルも自然に閉じる。
+  const handoverTicket =
+    (handoverTicketId &&
+      visibleCalling.find((t) => t.id === handoverTicketId)) ||
+    null;
+
   const toasts: PendingDeleteToast[] = useMemo(
     () =>
       Array.from(pendingDeletes.entries()).map(([id, entry]) => ({
@@ -824,7 +838,7 @@ export default function AdminPage() {
               }`}
             >
               <RotateCcw size={16} />
-              {resetArmed ? "もう一度押すとリセット" : "全リセット"}
+              {resetArmed ? "確認待ち" : "全リセット"}
             </button>
           </div>
         </header>
@@ -838,6 +852,7 @@ export default function AdminPage() {
           onIssue={handleIssueFromScan}
           onRegister={handleRegisterCard}
           onDismiss={handleDismissScan}
+          suppressBoundMessage={Boolean(handoverTicket)}
         />
       </div>
 
@@ -939,6 +954,14 @@ export default function AdminPage() {
       </div>
 
       <UndoToastStack toasts={toasts} onUndo={handleUndoDelete} />
+
+      <HandoverModal
+        ticket={handoverTicket}
+        pending={handoverPending}
+        error={handoverError}
+        onComplete={handleHandoverComplete}
+        onClose={handleHandoverClose}
+      />
     </div>
   );
 }

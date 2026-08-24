@@ -117,8 +117,6 @@ export function issueTicket(cardId: string, item: MenuItemId): IssueResult {
     calledAt: null,
     skipped: false,
     cardId,
-    meishiReceived: false,
-    meishiReceivedAt: null,
     item,
   };
 
@@ -224,20 +222,6 @@ export function applyAction(
       } else {
         return { ok: false, reason: "invalid_transition", ticket };
       }
-      break;
-    }
-    case "meishi-on":
-    case "meishi-off": {
-      // COMPLETED 後の名刺フラグ変更は意味を持たないので拒否する。
-      if (ticket.status === "COMPLETED") {
-        return { ok: false, reason: "invalid_transition", ticket };
-      }
-      const next = request.action === "meishi-on";
-      if (ticket.meishiReceived === next) {
-        return { ok: true, ticket }; // 冪等。無駄な broadcast を出さない。
-      }
-      ticket.meishiReceived = next;
-      ticket.meishiReceivedAt = next ? Date.now() : null;
       break;
     }
     case "set-item": {
